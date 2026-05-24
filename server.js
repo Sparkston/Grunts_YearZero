@@ -25,27 +25,39 @@ wss.on("connection", (ws) => {
   }));
 
   ws.on("message", (raw) => {
-    try {
-      const data = JSON.parse(raw.toString());
+  try {
+    const msg = JSON.parse(raw.toString());
 
-      if (!data.basic || !data.stress) return;
+    console.log("RECEIVED:", msg);
 
-      const roll = {
-        type: "roll",
-        data: {
-          ...data,
-          time: new Date().toLocaleTimeString()
-        }
-      };
+    // IMPORTANT: extract payload correctly
+    const d = msg.data;
 
-      history.push(roll.data);
-
-      if (history.length > 200) history.shift();
-
-      broadcast(roll);
-
-    } catch (e) {
-      console.log("bad message");
+    if (!d || !Array.isArray(d.basic) || !Array.isArray(d.stress)) {
+      console.log("IGNORED INVALID MESSAGE");
+      return;
     }
-  });
+
+    const roll = {
+      type: "roll",
+      data: {
+        ...d,
+        time: new Date().toLocaleTimeString()
+      }
+    };
+
+    history.push(roll.data);
+
+    if (history.length > 200) history.shift();
+
+    // broadcast to ALL clients
+    for (const client of wss.clients) {
+      if (client.readyState === 1) {
+        client.send(JSON.stringify(roll));
+      }
+    }
+
+  } catch (e) {
+    console.log("BAD MESSAGE", e);
+  }
 });
