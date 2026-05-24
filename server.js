@@ -18,46 +18,41 @@ function broadcast(msg) {
 wss.on("connection", (ws) => {
   console.log("Client connected");
 
-  // send full history once
+  // send history on connect
   ws.send(JSON.stringify({
     type: "history",
     history
   }));
 
   ws.on("message", (raw) => {
-  try {
-    const msg = JSON.parse(raw.toString());
+    try {
+      const msg = JSON.parse(raw.toString());
 
-    console.log("RECEIVED:", msg);
+      console.log("RECEIVED:", msg);
 
-    // IMPORTANT: extract payload correctly
-    const d = msg.data;
+      const d = msg.data;
 
-    if (!d || !Array.isArray(d.basic) || !Array.isArray(d.stress)) {
-      console.log("IGNORED INVALID MESSAGE");
-      return;
-    }
-
-    const roll = {
-      type: "roll",
-      data: {
-        ...d,
-        time: new Date().toLocaleTimeString()
+      if (!d || !Array.isArray(d.basic) || !Array.isArray(d.stress)) {
+        console.log("IGNORED INVALID MESSAGE");
+        return;
       }
-    };
 
-    history.push(roll.data);
+      const roll = {
+        type: "roll",
+        data: {
+          ...d,
+          time: new Date().toLocaleTimeString()
+        }
+      };
 
-    if (history.length > 200) history.shift();
+      history.push(roll.data);
 
-    // broadcast to ALL clients
-    for (const client of wss.clients) {
-      if (client.readyState === 1) {
-        client.send(JSON.stringify(roll));
-      }
+      if (history.length > 200) history.shift();
+
+      broadcast(roll);
+
+    } catch (e) {
+      console.log("BAD MESSAGE", e);
     }
-
-  } catch (e) {
-    console.log("BAD MESSAGE", e);
-  }
+  });
 });
