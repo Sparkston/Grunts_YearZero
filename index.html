@@ -1,4 +1,86 @@
-<!doctype html>
+<script>
+const ws = new WebSocket("wss://grunts-yearzero.onrender.com");
+
+// local session log
+let log = [];
+
+// DOM helper (safe, no globals)
+const out = document.getElementById("out");
+const basicEl = document.getElementById("basic");
+const stressEl = document.getElementById("stress");
+const nameEl = document.getElementById("name");
+
+ws.onopen = () => {
+  console.log("CONNECTED TO YZE SERVER");
+};
+
+ws.onerror = () => {
+  out.innerHTML = "<b style='color:red'>Connection error</b>";
+};
+
+ws.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  // server sends full history on connect
+  if (data.type === "history") {
+    log = data.history || [];
+    render();
+    return;
+  }
+
+  // otherwise it's a new roll
+  log.push(data);
+  render();
+};
+
+function rollDice(n){
+  return Array.from({length:n}, () => Math.floor(Math.random()*6)+1);
+}
+
+function count(arr, v){
+  return arr.filter(x => x === v).length;
+}
+
+function roll(){
+  const basicCount = +basicEl.value;
+  const stressCount = +stressEl.value;
+
+  const basic = rollDice(basicCount);
+  const stress = rollDice(stressCount);
+
+  const data = {
+    name: nameEl.value || "Unknown",
+    basic,
+    stress,
+    successes: count(basic,6) + count(stress,6),
+    banes: count(stress,1),
+    time: new Date().toLocaleTimeString()
+  };
+
+  if (ws.readyState !== WebSocket.OPEN) {
+    alert("Not connected to server yet.");
+    return;
+  }
+
+  ws.send(JSON.stringify(data));
+}
+
+function render(){
+  out.innerHTML = log.map(d => `
+    <div class="box">
+      <div><b>${d.name}</b> <span class="small">(${d.time})</span></div>
+
+      <div><b>Basic:</b> <span class="dice">${d.basic.join(" ")}</span></div>
+      <div><b>Stress:</b> <span class="dice">${d.stress.join(" ")}</span></div>
+
+      <hr>
+
+      <div class="good">Successes: ${d.successes}</div>
+      <div class="bad">Banes (Stress 1s): ${d.banes}</div>
+    </div>
+  `).join("");
+}
+</script><!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
