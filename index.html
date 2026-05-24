@@ -129,6 +129,7 @@ function roll() {
       time: new Date().toLocaleTimeString()
     }
   };
+  console.log("SENDING TO SERVER:", payload);
 
   ws.send(JSON.stringify(payload));
 }
