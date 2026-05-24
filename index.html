@@ -1,86 +1,4 @@
-<script>
-const ws = new WebSocket("wss://grunts-yearzero.onrender.com");
-
-// local session log
-let log = [];
-
-// DOM helper (safe, no globals)
-const out = document.getElementById("out");
-const basicEl = document.getElementById("basic");
-const stressEl = document.getElementById("stress");
-const nameEl = document.getElementById("name");
-
-ws.onopen = () => {
-  console.log("CONNECTED TO YZE SERVER");
-};
-
-ws.onerror = () => {
-  out.innerHTML = "<b style='color:red'>Connection error</b>";
-};
-
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-
-  // server sends full history on connect
-  if (data.type === "history") {
-    log = data.history || [];
-    render();
-    return;
-  }
-
-  // otherwise it's a new roll
-  log.push(data);
-  render();
-};
-
-function rollDice(n){
-  return Array.from({length:n}, () => Math.floor(Math.random()*6)+1);
-}
-
-function count(arr, v){
-  return arr.filter(x => x === v).length;
-}
-
-function roll(){
-  const basicCount = +basicEl.value;
-  const stressCount = +stressEl.value;
-
-  const basic = rollDice(basicCount);
-  const stress = rollDice(stressCount);
-
-  const data = {
-    name: nameEl.value || "Unknown",
-    basic,
-    stress,
-    successes: count(basic,6) + count(stress,6),
-    banes: count(stress,1),
-    time: new Date().toLocaleTimeString()
-  };
-
-  if (ws.readyState !== WebSocket.OPEN) {
-    alert("Not connected to server yet.");
-    return;
-  }
-
-  ws.send(JSON.stringify(data));
-}
-
-function render(){
-  out.innerHTML = log.map(d => `
-    <div class="box">
-      <div><b>${d.name}</b> <span class="small">(${d.time})</span></div>
-
-      <div><b>Basic:</b> <span class="dice">${d.basic.join(" ")}</span></div>
-      <div><b>Stress:</b> <span class="dice">${d.stress.join(" ")}</span></div>
-
-      <hr>
-
-      <div class="good">Successes: ${d.successes}</div>
-      <div class="bad">Banes (Stress 1s): ${d.banes}</div>
-    </div>
-  `).join("");
-}
-</script><!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -89,23 +7,18 @@ function render(){
 <style>
 body {
   font-family: system-ui, sans-serif;
-  max-width: 720px;
+  max-width: 750px;
   margin: 20px auto;
   padding: 10px;
 }
 
-h2 { margin-bottom: 10px; }
-
 .row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
   margin-bottom: 10px;
 }
 
 input {
-  width: 70px;
-  padding: 4px;
+  width: 80px;
+  margin-right: 10px;
 }
 
 button {
@@ -114,24 +27,20 @@ button {
 }
 
 .box {
-  margin-top: 15px;
-  padding: 12px;
   border: 1px solid #ccc;
   border-radius: 8px;
+  padding: 10px;
+  margin-top: 10px;
 }
 
 .dice {
-  font-size: 18px;
   letter-spacing: 3px;
 }
 
 .good { color: green; font-weight: bold; }
 .bad { color: darkred; font-weight: bold; }
 
-.small {
-  font-size: 12px;
-  color: #666;
-}
+.small { font-size: 12px; color: #666; }
 </style>
 </head>
 
@@ -139,92 +48,136 @@ button {
 
 <h2>Year Zero Engine – Shared Roller</h2>
 
-<div class="small">
-Connected to: <code>grunts-yearzero.onrender.com</code>
-</div>
-
-<hr>
-
 <div class="row">
-  Basic dice:
+  Basic:
   <input id="basic" type="number" value="3" min="0">
 
-  Stress dice:
+  Stress:
   <input id="stress" type="number" value="2" min="0">
+
+  Player:
+  <input id="name" type="text" placeholder="Name">
 
   <button onclick="roll()">Roll</button>
 </div>
 
-<div class="row">
-  Player name:
-  <input id="name" placeholder="optional">
-</div>
-
-<div id="out" class="box">
-  Waiting for rolls...
-</div>
+<div id="out" class="box">Connecting...</div>
 
 <script>
-const ws = new WebSocket("wss://grunts-yearzero.onrender.com");
+window.addEventListener("DOMContentLoaded", () => {
 
-ws.onopen = () => {
-  renderMessage("Connected to dice server.");
-};
+  // =========================
+  // WebSocket connection
+  // =========================
+  const ws = new WebSocket("wss://grunts-yearzero.onrender.com");
 
-ws.onmessage = (event) => {
-  const data = JSON.parse(event.data);
-  render(data);
-};
+  // =========================
+  // DOM references (safe)
+  // =========================
+  const basicEl = document.getElementById("basic");
+  const stressEl = document.getElementById("stress");
+  const nameEl = document.getElementById("name");
+  const out = document.getElementById("out");
 
-ws.onerror = () => {
-  renderMessage("Connection error.");
-};
+  // session log
+  let log = [];
 
-function rollDice(n){
-  return Array.from({length:n}, () => Math.floor(Math.random()*6)+1);
-}
-
-function count(arr, v){
-  return arr.filter(x => x === v).length;
-}
-
-function roll(){
-  const basicCount = +document.getElementById("basic").value;
-  const stressCount = +document.getElementById("stress").value;
-  const playerName = document.getElementById("name").value || "Unknown";
-
-  const basic = rollDice(basicCount);
-  const stress = rollDice(stressCount);
-
-  const data = {
-    name: playerName,
-    basic,
-    stress,
-    successes: count(basic,6) + count(stress,6),
-    banes: count(stress,1),
-    time: new Date().toLocaleTimeString()
+  ws.onopen = () => {
+    console.log("CONNECTED TO YZE SERVER");
+    out.innerHTML = "Connected ✔";
   };
 
-  ws.send(JSON.stringify(data));
-}
-  
-function render(data){
-  out.innerHTML = `
-    <div><b>${data.name}</b> <span class="small">(${data.time})</span></div>
+  ws.onerror = () => {
+    out.innerHTML = "<b style='color:red'>Connection error</b>";
+  };
 
-    <div><b>Basic:</b> <span class="dice">${data.basic.join(" ")}</span></div>
-    <div><b>Stress:</b> <span class="dice">${data.stress.join(" ")}</span></div>
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
 
-    <hr>
+    // full history on connect
+    if (msg.type === "history") {
+      log = msg.history || [];
+      render();
+      return;
+    }
 
-    <div class="good">Successes: ${data.successes}</div>
-    <div class="bad">Banes (Stress 1s): ${data.banes}</div>
-  `;
-}
+    // new roll
+    if (msg.type === "roll") {
+      log.push(msg.data);
+      render();
+    }
+  };
 
-function renderMessage(msg){
-  out.innerHTML = `<div class="small">${msg}</div>`;
-}
+  // =========================
+  // Dice logic
+  // =========================
+  function rollDice(n) {
+    return Array.from({ length: n }, () =>
+      Math.floor(Math.random() * 6) + 1
+    );
+  }
+
+  function count(arr, v) {
+    return arr.filter(x => x === v).length;
+  }
+
+  // =========================
+  // Roll action (global for onclick)
+  // =========================
+  function roll() {
+    const basicCount = +basicEl.value;
+    const stressCount = +stressEl.value;
+
+    const basic = rollDice(basicCount);
+    const stress = rollDice(stressCount);
+
+    const data = {
+      type: "roll",
+      data: {
+        name: nameEl.value || "Unknown",
+        basic,
+        stress,
+        successes: count(basic, 6) + count(stress, 6),
+        banes: count(stress, 1),
+        time: new Date().toLocaleTimeString()
+      }
+    };
+
+    if (ws.readyState !== WebSocket.OPEN) {
+      alert("Not connected to server yet");
+      return;
+    }
+
+    ws.send(JSON.stringify(data));
+  }
+
+  window.roll = roll;
+
+  // =========================
+  // Render history
+  // =========================
+  function render() {
+    if (log.length === 0) {
+      out.innerHTML = "No rolls yet";
+      return;
+    }
+
+    out.innerHTML = log.map(d => `
+      <div class="box">
+        <b>${d.name}</b> <span class="small">(${d.time})</span><br><br>
+
+        <b>Basic:</b> <span class="dice">${d.basic.join(" ")}</span><br>
+        <b>Stress:</b> <span class="dice">${d.stress.join(" ")}</span><br>
+
+        <hr>
+
+        <div class="good">Successes: ${d.successes}</div>
+        <div class="bad">Banes: ${d.banes}</div>
+      </div>
+    `).join("");
+  }
+
+});
 </script>
 
 </body>
