@@ -24,35 +24,8 @@ wss.on("connection", (ws) => {
     history
   }));
 
-  ws.on("message", (raw) => {
-    try {
-      const msg = JSON.parse(raw.toString());
-
-      console.log("RECEIVED:", msg);
-
-      const d = msg.data;
-
-      if (!d || !Array.isArray(d.basic) || !Array.isArray(d.stress)) {
-        console.log("IGNORED INVALID MESSAGE");
-        return;
-      }
-
-      const roll = {
-        type: "roll",
-        data: {
-          ...d,
-          time: new Date().toLocaleTimeString()
-        }
-      };
-
-      history.push(roll.data);
-
-      if (history.length > 200) history.shift();
-
-      broadcast(roll);
-
-    } catch (e) {
-      console.log("BAD MESSAGE", e);
-    }
+    ws.on("message", (raw) => {
+    console.log("RAW MESSAGE RECEIVED");
+    console.log(raw.toString());
   });
 });
