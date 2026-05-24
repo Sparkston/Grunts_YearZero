@@ -107,14 +107,15 @@ function count(arr, v){
 }
 
 function roll(){
-  const basicCount = +basic.value;
-  const stressCount = +stress.value;
+  const basicCount = +document.getElementById("basic").value;
+  const stressCount = +document.getElementById("stress").value;
+  const playerName = document.getElementById("name").value || "Unknown";
 
   const basic = rollDice(basicCount);
   const stress = rollDice(stressCount);
 
   const data = {
-    name: name.value || "Unknown",
+    name: playerName,
     basic,
     stress,
     successes: count(basic,6) + count(stress,6),
@@ -124,7 +125,7 @@ function roll(){
 
   ws.send(JSON.stringify(data));
 }
-
+  
 function render(data){
   out.innerHTML = `
     <div><b>${data.name}</b> <span class="small">(${data.time})</span></div>
