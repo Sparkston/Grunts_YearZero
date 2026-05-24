@@ -1,16 +1,12 @@
 const WebSocket = require("ws");
 
 const PORT = process.env.PORT || 8080;
-
-/**
- * Simple shared Year Zero Engine dice server
- * - receives roll payloads from clients
- * - broadcasts to all connected clients
- */
-
 const wss = new WebSocket.Server({ port: PORT });
 
-console.log(`YZE dice server running on port ${PORT}`);
+console.log(`YZE server running on port ${PORT}`);
+
+// 🧠 session history stored in memory
+const history = [];
 
 function broadcast(data) {
   const msg = JSON.stringify(data);
@@ -25,40 +21,35 @@ function broadcast(data) {
 wss.on("connection", (ws) => {
   console.log("Client connected");
 
+  // 1. send full history to new client
+  ws.send(JSON.stringify({
+    type: "history",
+    history
+  }));
+
   ws.on("message", (raw) => {
     try {
       const data = JSON.parse(raw.toString());
 
-      /**
-       * Expected payload shape:
-       * {
-       *   basic: number[],
-       *   stress: number[],
-       *   successes: number,
-       *   banes: number,
-       *   name?: string
-       * }
-       */
+      // basic validation
+      if (!data.basic || !data.stress) return;
 
-      // Basic validation (important for public hosting)
-      if (!data || typeof data !== "object") return;
-      if (!Array.isArray(data.basic)) return;
-      if (!Array.isArray(data.stress)) return;
+      // attach timestamp if missing
+      data.time = data.time || new Date().toLocaleTimeString();
 
-      // Limit payload size (basic abuse protection)
-      if (data.basic.length > 100 || data.stress.length > 100) return;
+      // 2. store roll in history
+      history.push(data);
 
+      // optional: prevent unlimited memory growth
+      if (history.length > 200) history.shift();
+
+      // 3. broadcast to all clients
       broadcast(data);
+
     } catch (e) {
-      // ignore malformed messages
+      console.log("Invalid message received");
     }
   });
-
-  ws.on("close", () => {
-    console.log("Client disconnected");
-  });
 });
 
-wss.on("error", (err) => {
-  console.error("Server error:", err);
-});
+wss.on("error", console.error);
