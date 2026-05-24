@@ -3,17 +3,14 @@ const WebSocket = require("ws");
 const PORT = process.env.PORT || 8080;
 const wss = new WebSocket.Server({ port: PORT });
 
-console.log(`YZE server running on port ${PORT}`);
-
-// 🧠 session history stored in memory
 const history = [];
 
-function broadcast(data) {
-  const msg = JSON.stringify(data);
+console.log(`YZE server running on port ${PORT}`);
 
+function broadcast(msg) {
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(msg);
+      client.send(JSON.stringify(msg));
     }
   }
 }
@@ -21,7 +18,7 @@ function broadcast(data) {
 wss.on("connection", (ws) => {
   console.log("Client connected");
 
-  // 1. send full history to new client
+  // send full history once
   ws.send(JSON.stringify({
     type: "history",
     history
@@ -31,25 +28,24 @@ wss.on("connection", (ws) => {
     try {
       const data = JSON.parse(raw.toString());
 
-      // basic validation
       if (!data.basic || !data.stress) return;
 
-      // attach timestamp if missing
-      data.time = data.time || new Date().toLocaleTimeString();
+      const roll = {
+        type: "roll",
+        data: {
+          ...data,
+          time: new Date().toLocaleTimeString()
+        }
+      };
 
-      // 2. store roll in history
-      history.push(data);
+      history.push(roll.data);
 
-      // optional: prevent unlimited memory growth
       if (history.length > 200) history.shift();
 
-      // 3. broadcast to all clients
-      broadcast(data);
+      broadcast(roll);
 
     } catch (e) {
-      console.log("Invalid message received");
+      console.log("bad message");
     }
   });
 });
-
-wss.on("error", console.error);
