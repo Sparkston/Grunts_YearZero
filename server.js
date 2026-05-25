@@ -23,6 +23,15 @@ const gameState = {
   history: []
 };
 
+/* ---------------- CLIENT ROLES ---------------- */
+
+const clients = new Map(); 
+// ws -> { role: "gm" | "player" }
+
+function getRole(ws) {
+  return clients.get(ws)?.role || "player";
+}
+
 /* ---------------- UTIL ---------------- */
 
 function rollDice(n) {
@@ -35,10 +44,16 @@ function count(arr, v) {
   return arr.filter(x => x === v).length;
 }
 
-function broadcast(msg) {
-  const json = JSON.stringify(msg);
+function broadcastState() {
+  const msg = JSON.stringify({
+    type: "state",
+    state: gameState
+  });
+
   for (const c of wss.clients) {
-    if (c.readyState === WebSocket.OPEN) c.send(json);
+    if (c.readyState === WebSocket.OPEN) {
+      c.send(msg);
+    }
   }
 }
 
@@ -46,7 +61,9 @@ function broadcast(msg) {
 
 function resolvePanic(total) {
   for (const row of panicTable) {
-    if (total >= row.min && total <= row.max) return row.text;
+    if (total >= row.min && total <= row.max) {
+      return row.text;
+    }
   }
   return "No effect.";
 }
@@ -55,23 +72,19 @@ function performPanic(name) {
   const actor = gameState.actors[name];
   if (!actor) return;
 
-  const stress = actor.stress || 0;
   const d6 = Math.floor(Math.random() * 6) + 1;
-  const total = d6 + stress;
+  const total = d6 + actor.stress;
 
-  const roll = {
+  gameState.history.push({
     name: `${name} Panic Test`,
     dice: d6,
-    stress,
+    stress: actor.stress,
     total,
     resultText: resolvePanic(total),
     time: new Date().toLocaleTimeString()
-  };
+  });
 
-  gameState.history.push(roll);
-  if (gameState.history.length > 200) gameState.history.shift();
-
-  broadcast({ type: "roll", roll });
+  broadcastState();
 }
 
 /* ---------------- CRITICAL ---------------- */
@@ -83,26 +96,18 @@ function rollD66() {
 }
 
 function performCritical() {
-  const result = rollD66();
-  const injury = criticalTable[result];
+  const d66 = rollD66();
+  const injury = criticalTable[d66];
   if (!injury) return;
 
-  const roll = {
+  gameState.history.push({
     name: "Critical Injury",
-    d66: result,
-    injury: injury.injury,
-    fatal: injury.fatal,
-    fatalModifier: injury.fatalModifier ?? null,
-    timeLimit: injury.timeLimit,
-    effects: injury.effects,
-    healing: injury.healing,
+    d66,
+    ...injury,
     time: new Date().toLocaleTimeString()
-  };
+  });
 
-  gameState.history.push(roll);
-  if (gameState.history.length > 200) gameState.history.shift();
-
-  broadcast({ type: "roll", roll });
+  broadcastState();
 }
 
 /* ---------------- CORE ROLL ---------------- */
@@ -116,20 +121,16 @@ function performRoll({ name, basic = 0, noStress = false }) {
       ? rollDice(actor.stress)
       : [];
 
-  const roll = {
+  gameState.history.push({
     name,
     basic: basicDice,
     stress: stressDice,
-    stressLevel: actor?.stress ?? 0,
     successes: count(basicDice, 6) + count(stressDice, 6),
     banes: count(stressDice, 1),
     time: new Date().toLocaleTimeString()
-  };
+  });
 
-  gameState.history.push(roll);
-  if (gameState.history.length > 200) gameState.history.shift();
-
-  broadcast({ type: "roll", roll });
+  broadcastState();
 }
 
 /* ---------------- ACTORS ---------------- */
@@ -141,7 +142,7 @@ function createActor(name) {
   gameState.actors[finalName] = { type: "npc", stress: 0 };
   gameState.turnOrder.push(finalName);
 
-  broadcast({ type: "state", state: gameState });
+  broadcastState();
 }
 
 function removeActor(name) {
@@ -151,11 +152,7 @@ function removeActor(name) {
   delete gameState.actors[name];
   gameState.turnOrder = gameState.turnOrder.filter(n => n !== name);
 
-  if (gameState.currentTurnIndex >= gameState.turnOrder.length) {
-    gameState.currentTurnIndex = 0;
-  }
-
-  broadcast({ type: "state", state: gameState });
+  broadcastState();
 }
 
 /* ---------------- INITIATIVE ---------------- */
@@ -163,27 +160,32 @@ function removeActor(name) {
 function shuffleInitiative() {
   gameState.turnOrder.sort(() => Math.random() - 0.5);
   gameState.currentTurnIndex = 0;
-  broadcast({ type: "state", state: gameState });
+  broadcastState();
 }
 
 function nextTurn() {
-  if (!gameState.turnOrder.length) return;
-
   gameState.currentTurnIndex++;
   if (gameState.currentTurnIndex >= gameState.turnOrder.length) {
     gameState.currentTurnIndex = 0;
   }
-
-  broadcast({ type: "state", state: gameState });
+  broadcastState();
 }
 
 /* ---------------- MESSAGE HANDLER ---------------- */
 
-function handle(msg) {
+function handle(ws, msg) {
+
   switch (msg.type) {
 
+    case "setRole":
+      clients.set(ws, { role: msg.role || "player" });
+      break;
+
     case "roll":
-      performRoll({ name: msg.name, basic: msg.basic });
+      performRoll({
+        name: msg.name,
+        basic: msg.basic
+      });
       break;
 
     case "adHocRoll":
@@ -207,9 +209,11 @@ function handle(msg) {
       break;
 
     case "setStress":
+      if (getRole(ws) !== "gm") return;
+
       if (gameState.actors[msg.name]) {
         gameState.actors[msg.name].stress = Math.max(0, msg.stress);
-        broadcast({ type: "state", state: gameState });
+        broadcastState();
       }
       break;
 
@@ -223,16 +227,26 @@ function handle(msg) {
   }
 }
 
-/* ---------------- CONNECTION ---------------- */
+/* ---------------- CONNECTIONS ---------------- */
 
 wss.on("connection", ws => {
-  ws.send(JSON.stringify({ type: "state", state: gameState }));
+
+  clients.set(ws, { role: "player" });
+
+  ws.send(JSON.stringify({
+    type: "state",
+    state: gameState
+  }));
 
   ws.on("message", raw => {
     try {
-      handle(JSON.parse(raw.toString()));
+      handle(ws, JSON.parse(raw.toString()));
     } catch (e) {
       console.log("BAD MESSAGE:", e);
     }
+  });
+
+  ws.on("close", () => {
+    clients.delete(ws);
   });
 });
