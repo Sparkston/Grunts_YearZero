@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>YZE Multiplayer Roller</title>
+<title>YZE Engine (Stateful)</title>
 
 <style>
 body {
@@ -12,95 +12,81 @@ body {
   padding: 10px;
 }
 
-.row {
-  margin-bottom: 12px;
-}
+.row { margin-bottom: 10px; }
 
 button {
-  padding: 6px 12px;
-  margin-right: 4px;
+  margin-left: 4px;
+  padding: 4px 8px;
 }
 
-input,
-select {
+input, select {
   padding: 4px;
-}
-
-#players {
-  margin: 20px 0;
 }
 
 .player {
   border: 1px solid #ccc;
-  border-radius: 6px;
   padding: 8px;
   margin-bottom: 6px;
+  border-radius: 6px;
 }
 
 .roll {
   border: 1px solid #ccc;
-  border-radius: 6px;
-  padding: 10px;
   margin-top: 10px;
+  padding: 10px;
+  border-radius: 6px;
 }
 
-.good {
-  color: green;
-  font-weight: bold;
-}
+.good { color: green; font-weight: bold; }
+.bad { color: darkred; font-weight: bold; }
 
-.bad {
-  color: darkred;
-  font-weight: bold;
-}
+.small { color: #666; font-size: 12px; }
 
-.small {
-  color: #666;
-  font-size: 12px;
-}
-
-.dice {
-  letter-spacing: 2px;
-}
+.dice { letter-spacing: 2px; }
 </style>
 </head>
+
 <body>
 
-<h2>Year Zero Engine Shared Roller</h2>
+<h2>Year Zero Engine Multiplayer</h2>
 
 <div id="status">Connecting...</div>
 
 <hr>
 
+<!-- ROLL PANEL -->
 <div class="row">
+
   Character:
 
-  <select id="player">
-    <option value="Grunt1">Grunt1</option>
-    <option value="Grunt2">Grunt2</option>
-    <option value="Grunt3">Grunt3</option>
-    <option value="Grunt4">Grunt4</option>
-  </select>
+  <select id="player"></select>
 
   Basic Dice:
 
-  <input
-    id="basic"
-    type="number"
-    min="0"
-    value="5"
-    style="width:70px;"
-  >
+  <input id="basic" type="number" value="5" min="0" style="width:70px">
 
-  <button onclick="rollDicePool()">
-    Roll
-  </button>
+  <button onclick="roll()">Roll</button>
+
 </div>
 
+<!-- CREATE CHARACTER -->
+<div class="row">
+
+  <input id="newChar" placeholder="New character name">
+
+  <button onclick="createCharacter()">Add Character</button>
+
+</div>
+
+<hr>
+
+<!-- PLAYER LIST -->
+<h3>Characters</h3>
 <div id="players"></div>
 
-<h3>Roll History</h3>
+<hr>
 
+<h3>Roll History</h3>
 <div id="history"></div>
 
 <script>
@@ -110,81 +96,64 @@ let gameState = null;
 
 function connect() {
 
-  ws = new WebSocket(
-    "wss://grunts-yearzero.onrender.com"
-  );
+  ws = new WebSocket("wss://grunts-yearzero.onrender.com");
 
   ws.onopen = () => {
-    document.getElementById("status")
-      .textContent = "Connected";
+    document.getElementById("status").textContent = "Connected";
   };
 
   ws.onclose = () => {
-    document.getElementById("status")
-      .textContent =
-      "Disconnected - reconnecting...";
-
+    document.getElementById("status").textContent =
+      "Disconnected (reconnecting...)";
     setTimeout(connect, 2000);
-  };
-
-  ws.onerror = (err) => {
-    console.log(err);
   };
 
   ws.onmessage = (event) => {
 
-    const msg =
-      JSON.parse(event.data);
+    const msg = JSON.parse(event.data);
 
-    console.log("RECEIVED", msg);
+    console.log("RECEIVED:", msg);
 
-    switch (msg.type) {
+    if (msg.type === "state") {
 
-      case "state":
+      gameState = msg.state;
 
-        gameState = msg.state;
+      renderPlayers();
+      renderSelector();
+      renderHistory();
 
-        renderPlayers();
-        renderHistory();
+    }
 
-        break;
+    if (msg.type === "roll") {
 
-      case "roll":
+      gameState.history.push(msg.roll);
+      renderHistory();
 
-        gameState.history.push(
-          msg.roll
-        );
-
-        renderHistory();
-
-        break;
     }
   };
 }
 
-function send(obj) {
+/*
+ * SEND
+ */
 
-  if (
-    ws &&
-    ws.readyState === WebSocket.OPEN
-  ) {
-    ws.send(
-      JSON.stringify(obj)
-    );
+function send(obj) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(obj));
   }
 }
 
-function rollDicePool() {
+/*
+ * ROLL
+ */
+
+function roll() {
 
   const player =
-    document.getElementById("player")
-      .value;
+    document.getElementById("player").value;
 
   const basic =
-    Number(
-      document.getElementById("basic")
-        .value
-    );
+    Number(document.getElementById("basic").value);
 
   send({
     type: "roll",
@@ -193,125 +162,135 @@ function rollDicePool() {
   });
 }
 
-function addStress(player) {
+/*
+ * STRESS
+ */
 
-  send({
-    type: "addStress",
-    player
-  });
+function addStress(name) {
+  send({ type: "addStress", name });
 }
 
-function removeStress(player) {
+function removeStress(name) {
+  send({ type: "removeStress", name });
+}
+
+/*
+ * CREATE CHARACTER
+ */
+
+function createCharacter() {
+
+  const name =
+    document.getElementById("newChar").value.trim();
+
+  if (!name) return;
 
   send({
-    type: "removeStress",
-    player
+    type: "createCharacter",
+    name
   });
+
+  document.getElementById("newChar").value = "";
 }
+
+/*
+ * RENDER SELECTOR
+ */
+
+function renderSelector() {
+
+  const sel = document.getElementById("player");
+
+  const current = sel.value;
+
+  sel.innerHTML = "";
+
+  for (const name of Object.keys(gameState.players)) {
+
+    const opt = document.createElement("option");
+
+    opt.value = name;
+    opt.textContent = name;
+
+    sel.appendChild(opt);
+  }
+
+  if (gameState.players[current]) {
+    sel.value = current;
+  }
+}
+
+/*
+ * RENDER PLAYERS
+ */
 
 function renderPlayers() {
 
-  if (!gameState) return;
-
-  const div =
-    document.getElementById(
-      "players"
-    );
+  const div = document.getElementById("players");
 
   div.innerHTML = "";
 
-  for (
-    const [name, player]
-    of Object.entries(
-      gameState.players
-    )
-  ) {
+  for (const [name, p] of Object.entries(gameState.players)) {
 
-    const el =
-      document.createElement("div");
-
+    const el = document.createElement("div");
     el.className = "player";
 
     el.innerHTML = `
       <b>${name}</b>
-      &nbsp;&nbsp;
-      Stress:
-      <b>${player.stress}</b>
+      <br>
+      Stress: <b>${p.stress}</b>
+      <br><br>
 
-      <button onclick="addStress('${name}')">
-        +
-      </button>
-
-      <button onclick="removeStress('${name}')">
-        -
-      </button>
+      <button onclick="addStress('${name}')">+</button>
+      <button onclick="removeStress('${name}')">-</button>
     `;
 
     div.appendChild(el);
   }
 }
 
+/*
+ * RENDER HISTORY
+ */
+
 function renderHistory() {
 
-  if (!gameState) return;
+  const div = document.getElementById("history");
 
-  const div =
-    document.getElementById(
-      "history"
-    );
+  const rolls = [...gameState.history].reverse();
 
-  const rolls =
-    [...gameState.history]
-      .reverse();
+  div.innerHTML = rolls.map(r => `
+    <div class="roll">
 
-  div.innerHTML =
-    rolls.map(r => `
+      <b>${r.name}</b>
+      <span class="small">(${r.time})</span>
 
-      <div class="roll">
+      <br><br>
 
-        <b>${r.name}</b>
+      Stress Level: <b>${r.stressLevel}</b>
 
-        <span class="small">
-          (${r.time})
-        </span>
+      <br><br>
 
-        <br><br>
+      <b>Basic:</b>
+      <span class="dice">${r.basic.join(" ")}</span>
 
-        Stress Level:
-        <b>${r.stressLevel}</b>
+      <br>
 
-        <br><br>
+      <b>Stress:</b>
+      <span class="dice">${r.stress.join(" ")}</span>
 
-        <b>Basic:</b>
+      <hr>
 
-        <span class="dice">
-          ${r.basic.join(" ")}
-        </span>
+      <div class="good">Successes: ${r.successes}</div>
+      <div class="bad">Banes: ${r.banes}</div>
 
-        <br>
-
-        <b>Stress:</b>
-
-        <span class="dice">
-          ${r.stress.join(" ")}
-        </span>
-
-        <hr>
-
-        <div class="good">
-          Successes:
-          ${r.successes}
-        </div>
-
-        <div class="bad">
-          Banes:
-          ${r.banes}
-        </div>
-
-      </div>
-
-    `).join("");
+    </div>
+  `).join("");
 }
+
+/*
+ * START
+ */
 
 connect();
 
