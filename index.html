@@ -2,6 +2,230 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<title>YZE Table</title>
+
+<style>
+body {
+  font-family: system-ui;
+  max-width: 1000px;
+  margin: 20px auto;
+}
+
+.player {
+  border: 1px solid #ccc;
+  padding: 8px;
+  margin-bottom: 6px;
+}
+
+.active {
+  border: 2px solid green;
+}
+
+button { margin-left: 4px; }
+</style>
+</head>
+
+<body>
+
+<h2>YZE Table</h2>
+
+<div id="status">Connecting...</div>
+
+<hr>
+
+<select id="actorSelect"></select>
+
+<input id="newName" placeholder="NPC name">
+
+<input id="basic" type="number" value="5" min="0">
+
+<button onclick="roll()">Roll</button>
+
+<button onclick="newActor()">New Actor</button>
+<button onclick="adHoc()">New Roller</button>
+
+<br><br>
+
+<button onclick="shuffle()">Shuffle Initiative</button>
+<button onclick="next()">Next Turn</button>
+
+<hr>
+
+<h3>Actors</h3>
+<div id="actors"></div>
+
+<h3>History</h3>
+<div id="history"></div>
+
+<script>
+
+let ws;
+let state;
+
+function connect() {
+
+  ws = new WebSocket("wss://grunts-yearzero.onrender.com");
+
+  ws.onopen = () => {
+    document.getElementById("status").textContent = "Connected";
+  };
+
+  ws.onmessage = (e) => {
+
+    const msg = JSON.parse(e.data);
+
+    if (msg.type === "state") {
+      state = msg.state;
+      renderActors();
+      renderSelect();
+      renderHistory();
+    }
+
+    if (msg.type === "roll") {
+      state.history.push(msg.roll);
+      renderHistory();
+    }
+  };
+}
+
+function send(m) {
+  ws.send(JSON.stringify(m));
+}
+
+/*
+ * ACTIONS
+ */
+
+function roll() {
+
+  const name = document.getElementById("actorSelect").value;
+  const basic = Number(document.getElementById("basic").value);
+
+  send({ type: "roll", player: name, basic });
+}
+
+function newActor() {
+
+  const name = document.getElementById("newName").value;
+
+  send({ type: "createActor", name });
+
+  document.getElementById("newName").value = "";
+}
+
+function adHoc() {
+
+  const basic = Number(document.getElementById("basic").value);
+
+  send({ type: "adHocRoll", basic });
+}
+
+function shuffle() {
+  send({ type: "shuffleInitiative" });
+}
+
+function next() {
+  send({ type: "nextTurn" });
+}
+
+/*
+ * RENDER SELECT
+ */
+
+function renderSelect() {
+
+  const sel = document.getElementById("actorSelect");
+  sel.innerHTML = "";
+
+  for (const name of Object.keys(state.actors)) {
+
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+
+    sel.appendChild(opt);
+  }
+}
+
+/*
+ * RENDER ACTORS
+ */
+
+function renderActors() {
+
+  const div = document.getElementById("actors");
+  div.innerHTML = "";
+
+  const order = state.turnOrder;
+
+  for (let i = 0; i < order.length; i++) {
+
+    const name = order[i];
+    const a = state.actors[name];
+
+    if (!a) continue;
+
+    const isActive = i === state.currentTurnIndex;
+
+    const el = document.createElement("div");
+    el.className = "player" + (isActive ? " active" : "");
+
+    el.innerHTML = `
+      <b>${name}</b> (${a.type})<br>
+
+      Stress: ${a.stress}
+
+      <button onclick="addStress('${name}')">+</button>
+      <button onclick="removeStress('${name}')">-</button>
+
+      <button onclick="removeActor('${name}')">Remove</button>
+    `;
+
+    div.appendChild(el);
+  }
+}
+
+/*
+ * STRESS (simple, client-side send only)
+ */
+
+function addStress(name) {
+  state.actors[name].stress++;
+  send({ type: "noop" });
+}
+
+function removeStress(name) {
+  state.actors[name].stress = Math.max(0, state.actors[name].stress - 1);
+  send({ type: "noop" });
+}
+
+/*
+ * HISTORY
+ */
+
+function renderHistory() {
+
+  const div = document.getElementById("history");
+
+  div.innerHTML = state.history.slice().reverse().map(r => `
+    <div class="player">
+      <b>${r.name}</b> (${r.time})<br>
+      Basic: ${r.basic.join(" ")}<br>
+      Stress: ${r.stress.join(" ")}<br>
+      Successes: ${r.successes} | Banes: ${r.banes}
+    </div>
+  `).join("");
+}
+
+connect();
+
+</script>
+
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
 <title>YZE Engine (Stateful)</title>
 
 <style>
