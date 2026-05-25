@@ -227,8 +227,13 @@ function renderActors() {
         <button onclick="setStress('${name}',1)">+</button>
         <button onclick="setStress('${name}',-1)">-</button>
       ` : ""}
-
-      <button onclick="panic('${name}')">Panic</button>
+        
+        <button onclick="panic('${name}')">Panic</button>
+        
+        ${a.type === "npc"
+          ? `<button onclick="removeActor('${name}')">Remove</button>`
+          : ""
+        }
     `;
 
     div.appendChild(el);
