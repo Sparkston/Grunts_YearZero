@@ -21,9 +21,7 @@ body {
   border: 2px solid green;
 }
 
-button {
-  margin-left: 4px;
-}
+button { margin-left: 4px; }
 </style>
 </head>
 
@@ -36,13 +34,10 @@ button {
 <hr>
 
 <select id="actorSelect"></select>
-
 <input id="newName" placeholder="NPC name (optional)">
-
 <input id="basic" type="number" value="5" min="0">
 
 <button onclick="roll()">Roll</button>
-
 <button onclick="shuffle()">Shuffle</button>
 <button onclick="nextTurn()">Next</button>
 
@@ -64,10 +59,6 @@ let state;
 function connect() {
 
   ws = new WebSocket("wss://grunts-yearzero.onrender.com");
-
-  ws.onopen = () => {
-    document.getElementById("status").textContent = "Connected";
-  };
 
   ws.onmessage = (e) => {
 
@@ -109,21 +100,17 @@ function roll() {
 
     send({ type: "createActor", name: finalName });
 
-    send({
-      type: "roll",
-      player: finalName,
-      basic
-    });
+    send({ type: "roll", player: finalName, basic });
 
     document.getElementById("newName").value = "";
     return;
   }
 
-  send({
-    type: "roll",
-    player: sel,
-    basic
-  });
+  send({ type: "roll", player: sel, basic });
+}
+
+function panic(name) {
+  send({ type: "panic", name });
 }
 
 function shuffle() {
@@ -132,6 +119,21 @@ function shuffle() {
 
 function nextTurn() {
   send({ type: "nextTurn" });
+}
+
+function setStress(name, delta) {
+  const a = state.actors[name];
+  if (!a) return;
+
+  send({
+    type: "setStress",
+    name,
+    stress: (a.stress || 0) + delta
+  });
+}
+
+function removeActor(name) {
+  send({ type: "removeActor", name });
 }
 
 /* ---------------- RENDER ---------------- */
@@ -171,9 +173,7 @@ function renderSelect() {
   a2.textContent = "+ New Roller";
   sel.appendChild(a2);
 
-  if (state.actors[current]) {
-    sel.value = current;
-  }
+  if (state.actors[current]) sel.value = current;
 }
 
 function renderActors() {
@@ -187,7 +187,6 @@ function renderActors() {
 
     const name = order[i];
     const a = state.actors[name];
-
     if (!a) continue;
 
     const active = i === state.currentTurnIndex;
@@ -203,6 +202,8 @@ function renderActors() {
       <button onclick="setStress('${name}',1)">+</button>
       <button onclick="setStress('${name}',-1)">-</button>
 
+      <button onclick="panic('${name}')">Panic</button>
+
       ${a.type === "npc"
         ? `<button onclick="removeActor('${name}')">Remove</button>`
         : ""
@@ -213,28 +214,6 @@ function renderActors() {
   }
 }
 
-/* ---------------- STRESS ---------------- */
-
-function setStress(name, delta) {
-
-  const a = state.actors[name];
-  if (!a) return;
-
-  send({
-    type: "setStress",
-    name,
-    stress: (a.stress || 0) + delta
-  });
-}
-
-/* ---------------- REMOVE ---------------- */
-
-function removeActor(name) {
-  send({ type: "removeActor", name });
-}
-
-/* ---------------- HISTORY ---------------- */
-
 function renderHistory() {
 
   const div = document.getElementById("history");
@@ -244,10 +223,17 @@ function renderHistory() {
     .reverse()
     .map(r => `
       <div class="player">
+
         <b>${r.name}</b> (${r.time})<br>
-        Basic: ${r.basic.join(" ")}<br>
-        Stress: ${r.stress.join(" ")}<br>
-        Successes: ${r.successes} | Banes: ${r.banes}
+
+        ${r.dice !== undefined ? `d6: ${r.dice}<br>` : ""}
+        ${r.stress !== undefined ? `Stress: ${r.stress}<br>` : ""}
+        ${r.total !== undefined ? `Total: ${r.total}<br>` : ""}
+
+        ${r.basic?.length ? `Basic: ${r.basic.join(" ")}<br>` : ""}
+        ${r.stress?.length ? `Stress Dice: ${r.stress.join(" ")}<br>` : ""}
+
+        ${r.resultText ? `<b>${r.resultText}</b>` : ""}
       </div>
     `).join("");
 }
