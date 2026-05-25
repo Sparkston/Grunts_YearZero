@@ -262,7 +262,21 @@ function renderHistory() {
         </div>
       `;
     }
-
+    if (r.type === "panic") {
+      const dice = Array.isArray(r.dice) ? r.dice.join(" ") : "";
+    
+      return `
+        <div class="player">
+          <b>${r.name}</b> (${r.time})<br>
+    
+          Roll: ${dice}<br>
+          Stress: ${r.stress ?? 0}<br>
+          Total: ${r.total ?? ""}<br>
+    
+          <b>${r.resultText ?? ""}</b>
+        </div>
+      `;
+    }
     if (r.basic || r.stress) {
       const basic = Array.isArray(r.basic) ? r.basic.join(" ") : "";
       const stress = Array.isArray(r.stress) ? r.stress.join(" ") : "";
