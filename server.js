@@ -58,12 +58,8 @@ function broadcastState() {
 }
 
 /* ---------------- HISTORY (CRITICAL FIX) ---------------- */
-
 function pushHistory(entry) {
-  if (!entry || !entry.name) {
-    console.log("BLOCKED INVALID HISTORY ENTRY:", entry);
-    return;
-  }
+  if (!entry || !entry.name) return;
 
   gameState.history.push(entry);
 
@@ -71,7 +67,10 @@ function pushHistory(entry) {
     gameState.history = gameState.history.slice(-200);
   }
 
-  broadcastState();
+  broadcast({
+    type: "historyAppend",
+    entry
+  });
 }
 
 /* ---------------- PANIC ---------------- */
