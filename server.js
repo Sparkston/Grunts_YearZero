@@ -1,4 +1,5 @@
 const WebSocket = require("ws");
+const panicTable = require("./panicTable");
 
 const PORT = process.env.PORT || 8080;
 const wss = new WebSocket.Server({ port: PORT });
@@ -48,7 +49,51 @@ function sendState() {
   broadcast({ type: "state", state: gameState });
 }
 
-/* ---------------- CORE ROLL ENGINE ---------------- */
+/* ---------------- PANIC ---------------- */
+
+function resolvePanic(total) {
+
+  for (const row of panicTable) {
+    if (total >= row.min && total <= row.max) {
+      return row.text;
+    }
+  }
+
+  return "No effect.";
+}
+
+function performPanic(name) {
+
+  const actor = gameState.actors[name];
+  if (!actor) return;
+
+  const stress = actor.stress || 0;
+
+  const d6 = Math.floor(Math.random() * 6) + 1;
+  const total = d6 + stress;
+
+  const resultText = resolvePanic(total);
+
+  const roll = {
+    name: `${name} Panic Test`,
+
+    dice: d6,
+    stress,
+    total,
+
+    resultText,
+    time: new Date().toLocaleTimeString()
+  };
+
+  gameState.history.push(roll);
+  if (gameState.history.length > 200) {
+    gameState.history.shift();
+  }
+
+  broadcast({ type: "roll", roll });
+}
+
+/* ---------------- CORE ROLL ---------------- */
 
 function performRoll({ name, basic = 0, noStress = false }) {
 
@@ -79,7 +124,6 @@ function performRoll({ name, basic = 0, noStress = false }) {
   };
 
   gameState.history.push(roll);
-
   if (gameState.history.length > 200) {
     gameState.history.shift();
   }
@@ -116,7 +160,7 @@ function removeActor(name) {
   const a = gameState.actors[name];
   if (!a) return;
 
-  if (a.type === "pc") return; // HARD GUARD
+  if (a.type === "pc") return;
 
   delete gameState.actors[name];
 
@@ -133,7 +177,6 @@ function removeActor(name) {
 /* ---------------- INITIATIVE ---------------- */
 
 function shuffleInitiative() {
-
   gameState.turnOrder =
     [...gameState.turnOrder].sort(() => Math.random() - 0.5);
 
@@ -159,15 +202,10 @@ function nextTurn() {
 
 function handle(msg) {
 
-  console.log("MSG:", msg.type);
-
   switch (msg.type) {
 
     case "roll":
-      performRoll({
-        name: msg.player,
-        basic: msg.basic
-      });
+      performRoll(msg);
       break;
 
     case "adHocRoll":
@@ -194,6 +232,10 @@ function handle(msg) {
       }
       break;
 
+    case "panic":
+      performPanic(msg.name);
+      break;
+
     case "shuffleInitiative":
       shuffleInitiative();
       break;
@@ -208,22 +250,17 @@ function handle(msg) {
 
 wss.on("connection", ws => {
 
-  console.log("Client connected");
-
   ws.send(JSON.stringify({
     type: "state",
     state: gameState
   }));
 
   ws.on("message", raw => {
-
     try {
-      const msg = JSON.parse(raw.toString());
-      handle(msg);
+      handle(JSON.parse(raw.toString()));
     } catch (e) {
       console.log("BAD MESSAGE:", e);
     }
-
   });
 
 });
