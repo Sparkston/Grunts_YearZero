@@ -51,8 +51,8 @@ button { margin-left: 4px; }
 <h2>YZE Actor Table</h2>
 
 <select id="actorSelect"></select>
-<input id="newName" placeholder="NPC name">
-<input id="basic" type="number" value="5">
+<input id="newName" placeholder="NPC name (optional)">
+<input id="basic" type="number" value="5" min="0">
 
 <button onclick="roll()">Roll</button>
 <button onclick="shuffle()">Shuffle</button>
@@ -70,10 +70,10 @@ button { margin-left: 4px; }
 <script>
 
 const urlParams = new URLSearchParams(window.location.search);
-let isGM = urlParams.get("gm") === "1";
+const isGM = urlParams.get("gm") === "1";
 
 let ws;
-let state;
+let state = null;
 
 /* ---------------- CONNECT ---------------- */
 
@@ -100,15 +100,19 @@ function connect() {
 }
 
 function send(msg) {
-  ws.send(JSON.stringify(msg));
+  if (ws && ws.readyState === 1) {
+    ws.send(JSON.stringify(msg));
+  }
 }
 
-/* ---------------- UI ACTIONS ---------------- */
+/* ---------------- ACTIONS ---------------- */
 
 function roll() {
-  const sel = actorSelect.value;
-  const basic = Number(document.getElementById("basic").value);
-  const name = document.getElementById("newName").value.trim();
+  const sel = document.getElementById("actorSelect").value;
+  const basic = Number(document.getElementById("basic").value) || 0;
+  const nameInput = document.getElementById("newName").value.trim();
+
+  if (!state) return;
 
   if (sel === "__new_roll__") {
     send({ type: "adHocRoll", basic });
@@ -116,7 +120,7 @@ function roll() {
   }
 
   if (sel === "__new_actor__") {
-    const finalName = name || `Actor ${Math.floor(Math.random()*10000)}`;
+    const finalName = nameInput || `Actor ${Math.floor(Math.random() * 10000)}`;
     send({ type: "createActor", name: finalName });
     send({ type: "roll", name: finalName, basic });
     return;
@@ -142,6 +146,8 @@ function nextTurn() {
 }
 
 function setStress(name, delta) {
+  if (!state?.actors?.[name]) return;
+
   const a = state.actors[name];
 
   send({
@@ -159,32 +165,50 @@ function renderRole() {
 }
 
 function renderAll() {
+  renderRole();
   renderSelect();
   renderActors();
   renderHistory();
 }
 
+/* ---------------- SELECT ---------------- */
+
 function renderSelect() {
-  const sel = actorSelect;
+  const sel = document.getElementById("actorSelect");
   sel.innerHTML = "";
 
-  for (const name of Object.keys(state.actors)) {
+  if (!state) return;
+
+  Object.keys(state.actors || {}).forEach(name => {
     const opt = document.createElement("option");
     opt.value = name;
     opt.textContent = name;
     sel.appendChild(opt);
-  }
+  });
 
-  sel.innerHTML += `
-    <option disabled>──────────</option>
-    <option value="__new_actor__">+ New Actor</option>
-    <option value="__new_roll__">+ New Roller</option>
-  `;
+  const sep = document.createElement("option");
+  sep.disabled = true;
+  sep.textContent = "──────────";
+  sel.appendChild(sep);
+
+  const opt1 = document.createElement("option");
+  opt1.value = "__new_actor__";
+  opt1.textContent = "+ New Actor";
+  sel.appendChild(opt1);
+
+  const opt2 = document.createElement("option");
+  opt2.value = "__new_roll__";
+  opt2.textContent = "+ New Roller";
+  sel.appendChild(opt2);
 }
+
+/* ---------------- ACTORS ---------------- */
 
 function renderActors() {
   const div = document.getElementById("actors");
   div.innerHTML = "";
+
+  if (!state) return;
 
   const order = state.turnOrder || [];
 
@@ -211,29 +235,35 @@ function renderActors() {
   });
 }
 
+/* ---------------- HISTORY ---------------- */
+
 function renderHistory() {
   const div = document.getElementById("history");
+  div.innerHTML = "";
 
-  div.innerHTML = (state.history || [])
-    .slice()
-    .reverse()
-    .map(r => `
-      <div class="player">
-        <b>${r.name}</b> (${r.time})<br>
+  if (!state?.history) return;
 
-        ${r.basic ? `Basic: ${r.basic.join(" ")}<br>` : ""}
-        ${r.stress ? `Stress: ${r.stress.join(" ")}<br>` : ""}
+  const items = [...state.history].reverse();
 
-        ${typeof r.successes === "number" ? `Successes: ${r.successes}<br>` : ""}
-        ${typeof r.banes === "number" ? `Banes: ${r.banes}<br>` : ""}
+  div.innerHTML = items.map(r => `
+    <div class="player">
+      <b>${r.name}</b> (${r.time})<br>
 
-        ${r.d66 !== undefined ? `
-          <hr>
-          <b>D66:</b> ${r.d66}<br>
-          <b>${r.injury || ""}</b><br>
-        ` : ""}
-      </div>
-    `).join("");
+      ${r.basic ? `Basic: ${r.basic.join(" ")}<br>` : ""}
+      ${r.stress ? `Stress: ${r.stress.join(" ")}<br>` : ""}
+
+      ${typeof r.successes === "number" ? `Successes: ${r.successes}<br>` : ""}
+      ${typeof r.banes === "number" ? `Banes: ${r.banes}<br>` : ""}
+
+      ${r.total !== undefined ? `Total: ${r.total}<br>` : ""}
+
+      ${r.d66 !== undefined ? `
+        <hr>
+        <b>D66:</b> ${r.d66}<br>
+        <b>${r.injury || r.resultText || ""}</b><br>
+      ` : ""}
+    </div>
+  `).join("");
 }
 
 connect();
