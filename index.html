@@ -66,6 +66,8 @@ button { margin-left: 4px; }
 let ws;
 let state;
 
+/* ---------------- CONNECT ---------------- */
+
 function connect() {
   ws = new WebSocket("wss://grunts-yearzero.onrender.com");
 
@@ -78,7 +80,8 @@ function connect() {
     }
 
     if (msg.type === "roll") {
-      state.history.push(msg.roll);
+      // IMPORTANT: do NOT mutate state.history here
+      // server is the only source of truth
       renderHistory();
     }
   };
@@ -91,9 +94,9 @@ function send(msg) {
 /* ---------------- ACTIONS ---------------- */
 
 function roll() {
-  const sel = actorSelect.value;
+  const sel = document.getElementById("actorSelect").value;
   const basic = Number(document.getElementById("basic").value);
-  const name = document.getElementById("newName").value.trim();
+  const nameInput = document.getElementById("newName").value.trim();
 
   if (sel === "__new_roll__") {
     send({ type: "adHocRoll", basic });
@@ -101,9 +104,13 @@ function roll() {
   }
 
   if (sel === "__new_actor__") {
-    const finalName = name || `Actor ${Math.floor(Math.random()*10000)}`;
+    const finalName =
+      nameInput || `Actor ${Math.floor(Math.random() * 10000)}`;
+
     send({ type: "createActor", name: finalName });
     send({ type: "roll", name: finalName, basic });
+
+    document.getElementById("newName").value = "";
     return;
   }
 
@@ -143,8 +150,9 @@ function renderAll() {
   renderHistory();
 }
 
+/* FIXED: no DOM corruption, stable rebuild */
 function renderSelect() {
-  const sel = actorSelect;
+  const sel = document.getElementById("actorSelect");
   const current = sel.value;
 
   sel.innerHTML = "";
@@ -156,11 +164,22 @@ function renderSelect() {
     sel.appendChild(opt);
   }
 
-  sel.innerHTML += `
-    <option disabled>──────────</option>
-    <option value="__new_actor__">+ New Actor</option>
-    <option value="__new_roll__">+ New Roller</option>
-  `;
+  const sep = document.createElement("option");
+  sep.disabled = true;
+  sep.textContent = "──────────";
+  sel.appendChild(sep);
+
+  const opt1 = document.createElement("option");
+  opt1.value = "__new_actor__";
+  opt1.textContent = "+ New Actor";
+  sel.appendChild(opt1);
+
+  const opt2 = document.createElement("option");
+  opt2.value = "__new_roll__";
+  opt2.textContent = "+ New Roller";
+  sel.appendChild(opt2);
+
+  if (state.actors[current]) sel.value = current;
 }
 
 function renderActors() {
@@ -196,6 +215,7 @@ function renderActors() {
   }
 }
 
+/* FIXED: server is sole source of truth */
 function renderHistory() {
   const div = document.getElementById("history");
 
@@ -204,266 +224,38 @@ function renderHistory() {
     .reverse()
     .map(r => `
       <div class="player">
+
         <b>${r.name}</b> (${r.time})<br>
-
-        ${r.d66 !== undefined ? `<b>D66:</b> ${r.d66}<br>
-        <b>Injury:</b> ${r.injury}<br>
-        <b>Effects:</b> ${r.effects}<br>` : ""}
-
-        ${r.dice !== undefined ? `d6: ${r.dice}<br>` : ""}
-        ${r.total !== undefined ? `Total: ${r.total}<br>` : ""}
 
         ${r.basic ? `Basic: ${r.basic.join(" ")}<br>` : ""}
         ${r.stress ? `Stress: ${r.stress.join(" ")}<br>` : ""}
 
-        ${r.resultText ? `<b>${r.resultText}</b>` : ""}
-      </div>
-    `).join("");
-}
-
-connect();
-
-</script>
-
-</body>
-</html><!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>YZE Table</title>
-
-<style>
-body {
-  font-family: system-ui;
-  max-width: 1000px;
-  margin: 20px auto;
-}
-
-.player {
-  border: 1px solid #ccc;
-  padding: 8px;
-  margin-bottom: 6px;
-}
-
-.active {
-  border: 2px solid green;
-}
-
-button { margin-left: 4px; }
-</style>
-</head>
-
-<body>
-
-<h2>YZE Actor Table</h2>
-
-<div id="status">Connecting...</div>
-
-<hr>
-
-<select id="actorSelect"></select>
-<input id="newName" placeholder="NPC name (optional)">
-<input id="basic" type="number" value="5" min="0">
-
-<button onclick="roll()">Roll</button>
-<button onclick="shuffle()">Shuffle</button>
-<button onclick="nextTurn()">Next</button>
-
-<hr>
-
-<h3>Actors</h3>
-<div id="actors"></div>
-
-<h3>History</h3>
-<div id="history"></div>
-
-<script>
-
-let ws;
-let state;
-
-/* ---------------- CONNECT ---------------- */
-
-function connect() {
-
-  ws = new WebSocket("wss://grunts-yearzero.onrender.com");
-
-  ws.onmessage = (e) => {
-
-    const msg = JSON.parse(e.data);
-
-    if (msg.type === "state") {
-      state = msg.state;
-      renderAll();
-    }
-
-    if (msg.type === "roll") {
-      state.history.push(msg.roll);
-      renderHistory();
-    }
-  };
-}
-
-function send(msg) {
-  ws.send(JSON.stringify(msg));
-}
-
-/* ---------------- ACTIONS ---------------- */
-
-function roll() {
-
-  const sel = document.getElementById("actorSelect").value;
-  const basic = Number(document.getElementById("basic").value);
-  const name = document.getElementById("newName").value.trim();
-
-  if (sel === "__new_roll__") {
-    send({ type: "adHocRoll", basic });
-    return;
-  }
-
-  if (sel === "__new_actor__") {
-
-    const finalName =
-      name || `Actor ${Math.floor(Math.random() * 10000)}`;
-
-    send({ type: "createActor", name: finalName });
-
-    send({ type: "roll", player: finalName, basic });
-
-    document.getElementById("newName").value = "";
-    return;
-  }
-
-  send({ type: "roll", player: sel, basic });
-}
-
-function panic(name) {
-  send({ type: "panic", name });
-}
-
-function shuffle() {
-  send({ type: "shuffleInitiative" });
-}
-
-function nextTurn() {
-  send({ type: "nextTurn" });
-}
-
-function setStress(name, delta) {
-  const a = state.actors[name];
-  if (!a) return;
-
-  send({
-    type: "setStress",
-    name,
-    stress: (a.stress || 0) + delta
-  });
-}
-
-function removeActor(name) {
-  send({ type: "removeActor", name });
-}
-
-/* ---------------- RENDER ---------------- */
-
-function renderAll() {
-  renderSelect();
-  renderActors();
-  renderHistory();
-}
-
-function renderSelect() {
-
-  const sel = document.getElementById("actorSelect");
-  const current = sel.value;
-
-  sel.innerHTML = "";
-
-  for (const name of Object.keys(state.actors)) {
-    const opt = document.createElement("option");
-    opt.value = name;
-    opt.textContent = name;
-    sel.appendChild(opt);
-  }
-
-  const sep = document.createElement("option");
-  sep.disabled = true;
-  sep.textContent = "──────────";
-  sel.appendChild(sep);
-
-  const a1 = document.createElement("option");
-  a1.value = "__new_actor__";
-  a1.textContent = "+ New Actor";
-  sel.appendChild(a1);
-
-  const a2 = document.createElement("option");
-  a2.value = "__new_roll__";
-  a2.textContent = "+ New Roller";
-  sel.appendChild(a2);
-
-  if (state.actors[current]) sel.value = current;
-}
-
-function renderActors() {
-
-  const div = document.getElementById("actors");
-  div.innerHTML = "";
-
-  const order = state.turnOrder || [];
-
-  for (let i = 0; i < order.length; i++) {
-
-    const name = order[i];
-    const a = state.actors[name];
-    if (!a) continue;
-
-    const active = i === state.currentTurnIndex;
-
-    const el = document.createElement("div");
-    el.className = "player" + (active ? " active" : "");
-
-    el.innerHTML = `
-      <b>${name}</b> (${a.type})<br>
-
-      Stress: ${a.stress}
-
-      <button onclick="setStress('${name}',1)">+</button>
-      <button onclick="setStress('${name}',-1)">-</button>
-
-      <button onclick="panic('${name}')">Panic</button>
-
-      ${a.type === "npc"
-        ? `<button onclick="removeActor('${name}')">Remove</button>`
-        : ""
-      }
-    `;
-
-    div.appendChild(el);
-  }
-}
-
-function renderHistory() {
-
-  const div = document.getElementById("history");
-
-  div.innerHTML = (state.history || [])
-    .slice()
-    .reverse()
-    .map(r => `
-      <div class="player">
-
-        <b>${r.name}</b> (${r.time})<br>
+        ${typeof r.successes === "number"
+          ? `<b>Successes:</b> ${r.successes}<br>`
+          : ""
+        }
+
+        ${typeof r.banes === "number"
+          ? `<b>Banes:</b> ${r.banes}<br>`
+          : ""
+        }
 
         ${r.dice !== undefined ? `d6: ${r.dice}<br>` : ""}
-        ${r.stress !== undefined ? `Stress: ${r.stress}<br>` : ""}
         ${r.total !== undefined ? `Total: ${r.total}<br>` : ""}
 
-        ${r.basic?.length ? `Basic: ${r.basic.join(" ")}<br>` : ""}
-        ${r.stress?.length ? `Stress Dice: ${r.stress.join(" ")}<br>` : ""}
+        ${r.d66 !== undefined ? `
+          <hr>
+          <b>D66:</b> ${r.d66}<br>
+          <b>Injury:</b> ${r.injury}<br>
+          <b>Effects:</b> ${r.effects}<br>
+          ${r.fatal ? `<b>Fatal:</b> Yes<br>` : ""}
+        ` : ""}
 
         ${r.resultText ? `<b>${r.resultText}</b>` : ""}
+
       </div>
-    `).join("");
+    `)
+    .join("");
 }
 
 connect();
