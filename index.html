@@ -96,15 +96,6 @@ function connect() {
       state = msg.state;
       renderAll();
     }
-  
-    if (msg.type === "historyAppend") {
-      if (!state) return;
-    
-      state.history = state.history || [];
-      state.history.push(msg.entry);
-    
-      renderHistory();
-    }
   };
 }
 
