@@ -91,10 +91,15 @@ function connect() {
 
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-
+  
     if (msg.type === "state") {
       state = msg.state;
       renderAll();
+    }
+  
+    if (msg.type === "historyAppend") {
+      state.history.push(msg.entry);
+      renderHistory();
     }
   };
 }
