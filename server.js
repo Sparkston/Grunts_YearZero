@@ -10,10 +10,10 @@ console.log(`YZE server running on port ${PORT}`);
  */
 const gameState = {
   players: {
-    Grunt1: { stress: 0 },
-    Grunt2: { stress: 0 },
-    Grunt3: { stress: 0 },
-    Grunt4: { stress: 0 }
+    Grunt1: { stress: 0, permanent: true },
+    Grunt2: { stress: 0, permanent: true },
+    Grunt3: { stress: 0, permanent: true },
+    Grunt4: { stress: 0, permanent: true }
   },
 
   history: []
@@ -34,8 +34,8 @@ function count(arr, value) {
   return arr.filter(x => x === value).length;
 }
 
-function broadcast(message) {
-  const json = JSON.stringify(message);
+function broadcast(msg) {
+  const json = JSON.stringify(msg);
 
   for (const client of wss.clients) {
     if (client.readyState === WebSocket.OPEN) {
@@ -52,51 +52,80 @@ function sendState() {
 }
 
 /*
- * GAME COMMANDS
+ * CHARACTER MANAGEMENT
  */
 
-function addStress(playerName) {
-  const player = gameState.players[playerName];
-  if (!player) return;
+function createCharacter(name) {
+  if (!name) return;
+  if (gameState.players[name]) return;
 
-  player.stress++;
-
-  sendState();
-}
-
-function removeStress(playerName) {
-  const player = gameState.players[playerName];
-  if (!player) return;
-
-  player.stress = Math.max(0, player.stress - 1);
+  gameState.players[name] = {
+    stress: 0,
+    permanent: false
+  };
 
   sendState();
 }
 
-function setStress(playerName, value) {
-  const player = gameState.players[playerName];
-  if (!player) return;
+function deleteCharacter(name) {
+  const p = gameState.players[name];
 
-  player.stress = Math.max(0, Number(value) || 0);
+  if (!p) return;
+
+  // prevent deleting PCs if you want strict mode
+  if (p.permanent) return;
+
+  delete gameState.players[name];
 
   sendState();
 }
 
-function performRoll(playerName, basicDice) {
+function addStress(name) {
+  const p = gameState.players[name];
+  if (!p) return;
 
-  const player = gameState.players[playerName];
-  if (!player) return;
+  p.stress++;
+
+  sendState();
+}
+
+function removeStress(name) {
+  const p = gameState.players[name];
+  if (!p) return;
+
+  p.stress = Math.max(0, p.stress - 1);
+
+  sendState();
+}
+
+function setStress(name, value) {
+  const p = gameState.players[name];
+  if (!p) return;
+
+  p.stress = Math.max(0, Number(value) || 0);
+
+  sendState();
+}
+
+/*
+ * ROLL ENGINE
+ */
+
+function performRoll(name, basicDice) {
+
+  const p = gameState.players[name];
+  if (!p) return;
 
   const basic = rollDice(basicDice);
-  const stress = rollDice(player.stress);
+  const stress = rollDice(p.stress);
 
   const roll = {
-    name: playerName,
+    name,
 
     basic,
     stress,
 
-    stressLevel: player.stress,
+    stressLevel: p.stress,
 
     successes:
       count(basic, 6) +
@@ -105,8 +134,7 @@ function performRoll(playerName, basicDice) {
     banes:
       count(stress, 1),
 
-    time:
-      new Date().toLocaleTimeString()
+    time: new Date().toLocaleTimeString()
   };
 
   gameState.history.push(roll);
@@ -122,7 +150,7 @@ function performRoll(playerName, basicDice) {
 }
 
 /*
- * COMMAND DISPATCHER
+ * COMMAND ROUTER
  */
 
 function handleCommand(msg) {
@@ -130,48 +158,42 @@ function handleCommand(msg) {
   switch (msg.type) {
 
     case "roll":
-      performRoll(
-        msg.player,
-        msg.basic
-      );
+      performRoll(msg.player, msg.basic);
       break;
 
     case "addStress":
-      addStress(
-        msg.player
-      );
+      addStress(msg.name);
       break;
 
     case "removeStress":
-      removeStress(
-        msg.player
-      );
+      removeStress(msg.name);
       break;
 
     case "setStress":
-      setStress(
-        msg.player,
-        msg.value
-      );
+      setStress(msg.name, msg.value);
+      break;
+
+    case "createCharacter":
+      createCharacter(msg.name);
+      break;
+
+    case "deleteCharacter":
+      deleteCharacter(msg.name);
       break;
 
     default:
-      console.log(
-        "Unknown command:",
-        msg.type
-      );
+      console.log("Unknown command:", msg.type);
   }
 }
 
 /*
- * CONNECTION HANDLING
+ * CONNECTIONS
  */
 
 wss.on("connection", (ws) => {
 
   console.log("Client connected");
 
-  // Send complete game state
   ws.send(JSON.stringify({
     type: "state",
     state: gameState
@@ -181,23 +203,15 @@ wss.on("connection", (ws) => {
 
     try {
 
-      const msg =
-        JSON.parse(raw.toString());
+      const msg = JSON.parse(raw.toString());
 
-      console.log(
-        "RECEIVED:",
-        msg
-      );
+      console.log("RECEIVED:", msg);
 
       handleCommand(msg);
 
-    }
-    catch (err) {
+    } catch (err) {
 
-      console.log(
-        "BAD MESSAGE:",
-        err
-      );
+      console.log("BAD MESSAGE:", err);
 
     }
 
