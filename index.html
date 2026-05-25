@@ -245,25 +245,55 @@ function renderHistory() {
 
   const items = [...state.history].reverse();
 
-  div.innerHTML = items.map(r => `
-    <div class="player">
-      <b>${r.name}</b> (${r.time})<br>
+  div.innerHTML = items.map(r => {
 
-      ${r.basic ? `Basic: ${r.basic.join(" ")}<br>` : ""}
-      ${r.stress ? `Stress: ${r.stress.join(" ")}<br>` : ""}
+    if (!r) return "";
 
-      ${typeof r.successes === "number" ? `Successes: ${r.successes}<br>` : ""}
-      ${typeof r.banes === "number" ? `Banes: ${r.banes}<br>` : ""}
+    // fallback safety
+    const name = r.name || "Unknown";
+    const time = r.time || "";
 
-      ${r.total !== undefined ? `Total: ${r.total}<br>` : ""}
+    if (r.d66 !== undefined) {
+      return `
+        <div class="player">
+          <b>${name}</b> (${time})<br>
+          <b>D66:</b> ${r.d66}<br>
+          <b>${r.injury || r.resultText || ""}</b>
+        </div>
+      `;
+    }
 
-      ${r.d66 !== undefined ? `
-        <hr>
-        <b>D66:</b> ${r.d66}<br>
-        <b>${r.injury || r.resultText || ""}</b><br>
-      ` : ""}
-    </div>
-  `).join("");
+    if (r.basic || r.stress) {
+      const basic = Array.isArray(r.basic) ? r.basic.join(" ") : "";
+      const stress = Array.isArray(r.stress) ? r.stress.join(" ") : "";
+
+      return `
+        <div class="player">
+          <b>${name}</b> (${time})<br>
+          ${basic ? `Basic: ${basic}<br>` : ""}
+          ${stress ? `Stress: ${stress}<br>` : ""}
+          ${typeof r.successes === "number" ? `Successes: ${r.successes}<br>` : ""}
+          ${typeof r.banes === "number" ? `Banes: ${r.banes}<br>` : ""}
+        </div>
+      `;
+    }
+
+    if (r.resultText) {
+      return `
+        <div class="player">
+          <b>${name}</b> (${time})<br>
+          ${r.resultText}
+        </div>
+      `;
+    }
+
+    return `
+      <div class="player">
+        <b>${name}</b> (${time})<br>
+        (Unrecognised entry)
+      </div>
+    `;
+  }).join("");
 }
 
 connect();
