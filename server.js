@@ -5,9 +5,8 @@ const wss = new WebSocket.Server({ port: PORT });
 
 console.log(`YZE server running on port ${PORT}`);
 
-/*
- * STATE
- */
+/* ---------------- STATE ---------------- */
+
 const gameState = {
   actors: {
     Grunt1: { type: "pc", stress: 0 },
@@ -22,9 +21,8 @@ const gameState = {
   history: []
 };
 
-/*
- * HELPERS
- */
+/* ---------------- UTIL ---------------- */
+
 function rollDice(n) {
   return Array.from(
     { length: Math.max(0, Number(n) || 0) },
@@ -38,6 +36,7 @@ function count(arr, v) {
 
 function broadcast(msg) {
   const json = JSON.stringify(msg);
+
   for (const c of wss.clients) {
     if (c.readyState === WebSocket.OPEN) {
       c.send(json);
@@ -49,10 +48,49 @@ function sendState() {
   broadcast({ type: "state", state: gameState });
 }
 
-/*
- * ACTOR MANAGEMENT
- */
+/* ---------------- CORE ROLL ENGINE ---------------- */
+
+function performRoll({ name, basic = 0, noStress = false }) {
+
+  const actor = gameState.actors[name];
+
+  const basicDice = rollDice(basic);
+
+  const stressDice =
+    actor && actor.type === "pc" && !noStress
+      ? rollDice(actor.stress)
+      : [];
+
+  const roll = {
+    name,
+    basic: basicDice,
+    stress: stressDice,
+
+    stressLevel: actor?.stress ?? 0,
+
+    successes:
+      count(basicDice, 6) +
+      count(stressDice, 6),
+
+    banes:
+      count(stressDice, 1),
+
+    time: new Date().toLocaleTimeString()
+  };
+
+  gameState.history.push(roll);
+
+  if (gameState.history.length > 200) {
+    gameState.history.shift();
+  }
+
+  broadcast({ type: "roll", roll });
+}
+
+/* ---------------- ACTORS ---------------- */
+
 function createActor(name) {
+
   let finalName = (name || "").trim();
 
   if (!finalName) {
@@ -74,7 +112,11 @@ function createActor(name) {
 }
 
 function removeActor(name) {
-  if (!gameState.actors[name]) return;
+
+  const a = gameState.actors[name];
+  if (!a) return;
+
+  if (a.type === "pc") return; // HARD GUARD
 
   delete gameState.actors[name];
 
@@ -88,12 +130,12 @@ function removeActor(name) {
   sendState();
 }
 
-/*
- * INITIATIVE
- */
+/* ---------------- INITIATIVE ---------------- */
+
 function shuffleInitiative() {
-  gameState.turnOrder = [...gameState.turnOrder]
-    .sort(() => Math.random() - 0.5);
+
+  gameState.turnOrder =
+    [...gameState.turnOrder].sort(() => Math.random() - 0.5);
 
   gameState.currentTurnIndex = 0;
 
@@ -101,7 +143,8 @@ function shuffleInitiative() {
 }
 
 function nextTurn() {
-  if (gameState.turnOrder.length === 0) return;
+
+  if (!gameState.turnOrder.length) return;
 
   gameState.currentTurnIndex++;
 
@@ -112,56 +155,27 @@ function nextTurn() {
   sendState();
 }
 
-/*
- * ROLLING
- */
-function performRoll(name, basic) {
-  const actor = gameState.actors[name];
-  if (!actor) return;
+/* ---------------- MESSAGE HANDLER ---------------- */
 
-  const basicDice = rollDice(basic);
-
-  const stressDice =
-    actor.type === "pc"
-      ? rollDice(actor.stress)
-      : [];
-
-  const roll = {
-    name,
-
-    basic: basicDice,
-    stress: stressDice,
-
-    stressLevel: actor.type === "pc" ? actor.stress : 0,
-
-    successes:
-      count(basicDice, 6) +
-      count(stressDice, 6),
-
-    banes:
-      count(stressDice, 1),
-
-    time: new Date().toLocaleTimeString()
-  };
-
-  gameState.history.push(roll);
-
-  if (gameState.history.length > 200) {
-    gameState.history.shift();
-  }
-
-  broadcast({ type: "roll", roll });
-}
-
-/*
- * DISPATCH
- */
 function handle(msg) {
+
+  console.log("MSG:", msg.type);
 
   switch (msg.type) {
 
     case "roll":
-      performRoll(msg.player, msg.basic);
+      performRoll({
+        name: msg.player,
+        basic: msg.basic
+      });
+      break;
+
+    case "adHocRoll":
+      performRoll({
+        name: "Ad Hoc",
+        basic: msg.basic,
+        noStress: true
+      });
       break;
 
     case "createActor":
@@ -172,6 +186,14 @@ function handle(msg) {
       removeActor(msg.name);
       break;
 
+    case "setStress":
+      if (gameState.actors[msg.name]) {
+        gameState.actors[msg.name].stress =
+          Math.max(0, msg.stress);
+        sendState();
+      }
+      break;
+
     case "shuffleInitiative":
       shuffleInitiative();
       break;
@@ -179,19 +201,11 @@ function handle(msg) {
     case "nextTurn":
       nextTurn();
       break;
-
-    case "adHocRoll":
-      performRoll("AdHoc", msg.basic);
-      break;
-
-    default:
-      console.log("Unknown:", msg.type);
   }
 }
 
-/*
- * CONNECTIONS
- */
+/* ---------------- CONNECTIONS ---------------- */
+
 wss.on("connection", ws => {
 
   console.log("Client connected");
