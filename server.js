@@ -99,13 +99,12 @@ function performPanic(name) {
     type: "panic",
     name: `${name} Panic Test`,
     time: new Date().toLocaleTimeString(),
-
+  
     dice: [d6],
-    stressDice: stress > 0 ? [stress] : [],
-
-    stress,
+    stress: stress,
+  
     total,
-    resultText
+    resultText: resolvePanic(total)
   });
 }
 
