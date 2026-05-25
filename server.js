@@ -6,15 +6,18 @@ const wss = new WebSocket.Server({ port: PORT });
 console.log(`YZE server running on port ${PORT}`);
 
 /*
- * GAME STATE
+ * STATE
  */
 const gameState = {
-  players: {
-    Grunt1: { stress: 0, permanent: true },
-    Grunt2: { stress: 0, permanent: true },
-    Grunt3: { stress: 0, permanent: true },
-    Grunt4: { stress: 0, permanent: true }
+  actors: {
+    Grunt1: { type: "pc", stress: 0 },
+    Grunt2: { type: "pc", stress: 0 },
+    Grunt3: { type: "pc", stress: 0 },
+    Grunt4: { type: "pc", stress: 0 }
   },
+
+  turnOrder: ["Grunt1", "Grunt2", "Grunt3", "Grunt4"],
+  currentTurnIndex: 0,
 
   history: []
 };
@@ -22,7 +25,6 @@ const gameState = {
 /*
  * HELPERS
  */
-
 function rollDice(n) {
   return Array.from(
     { length: Math.max(0, Number(n) || 0) },
@@ -30,109 +32,114 @@ function rollDice(n) {
   );
 }
 
-function count(arr, value) {
-  return arr.filter(x => x === value).length;
+function count(arr, v) {
+  return arr.filter(x => x === v).length;
 }
 
 function broadcast(msg) {
   const json = JSON.stringify(msg);
-
-  for (const client of wss.clients) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(json);
+  for (const c of wss.clients) {
+    if (c.readyState === WebSocket.OPEN) {
+      c.send(json);
     }
   }
 }
 
 function sendState() {
-  broadcast({
-    type: "state",
-    state: gameState
-  });
+  broadcast({ type: "state", state: gameState });
 }
 
 /*
- * CHARACTER MANAGEMENT
+ * ACTOR MANAGEMENT
  */
+function createActor(name) {
+  let finalName = (name || "").trim();
 
-function createCharacter(name) {
-  if (!name) return;
-  if (gameState.players[name]) return;
+  if (!finalName) {
+    finalName = `Actor ${Math.floor(Math.random() * 10000)}`;
+  }
 
-  gameState.players[name] = {
-    stress: 0,
-    permanent: false
+  if (gameState.actors[finalName]) {
+    finalName += ` ${Date.now()}`;
+  }
+
+  gameState.actors[finalName] = {
+    type: "npc",
+    stress: 0
   };
 
-  sendState();
-}
-
-function deleteCharacter(name) {
-  const p = gameState.players[name];
-
-  if (!p) return;
-
-  // prevent deleting PCs if you want strict mode
-  if (p.permanent) return;
-
-  delete gameState.players[name];
+  gameState.turnOrder.push(finalName);
 
   sendState();
 }
 
-function addStress(name) {
-  const p = gameState.players[name];
-  if (!p) return;
+function removeActor(name) {
+  if (!gameState.actors[name]) return;
 
-  p.stress++;
+  delete gameState.actors[name];
 
-  sendState();
-}
+  gameState.turnOrder =
+    gameState.turnOrder.filter(n => n !== name);
 
-function removeStress(name) {
-  const p = gameState.players[name];
-  if (!p) return;
-
-  p.stress = Math.max(0, p.stress - 1);
-
-  sendState();
-}
-
-function setStress(name, value) {
-  const p = gameState.players[name];
-  if (!p) return;
-
-  p.stress = Math.max(0, Number(value) || 0);
+  if (gameState.currentTurnIndex >= gameState.turnOrder.length) {
+    gameState.currentTurnIndex = 0;
+  }
 
   sendState();
 }
 
 /*
- * ROLL ENGINE
+ * INITIATIVE
  */
+function shuffleInitiative() {
+  gameState.turnOrder = [...gameState.turnOrder]
+    .sort(() => Math.random() - 0.5);
 
-function performRoll(name, basicDice) {
+  gameState.currentTurnIndex = 0;
 
-  const p = gameState.players[name];
-  if (!p) return;
+  sendState();
+}
 
-  const basic = rollDice(basicDice);
-  const stress = rollDice(p.stress);
+function nextTurn() {
+  if (gameState.turnOrder.length === 0) return;
+
+  gameState.currentTurnIndex++;
+
+  if (gameState.currentTurnIndex >= gameState.turnOrder.length) {
+    gameState.currentTurnIndex = 0;
+  }
+
+  sendState();
+}
+
+/*
+ * ROLLING
+ */
+function performRoll(name, basic) {
+  const actor = gameState.actors[name];
+  if (!actor) return;
+
+  const basicDice = rollDice(basic);
+
+  const stressDice =
+    actor.type === "pc"
+      ? rollDice(actor.stress)
+      : [];
 
   const roll = {
     name,
 
-    basic,
-    stress,
+    basic: basicDice,
+    stress: stressDice,
 
-    stressLevel: p.stress,
+    stressLevel: actor.type === "pc" ? actor.stress : 0,
 
     successes:
-      count(basic, 6) +
-      count(stress, 6),
+      count(basicDice, 6) +
+      count(stressDice, 6),
 
     banes:
-      count(stress, 1),
+      count(stressDice, 1),
 
     time: new Date().toLocaleTimeString()
   };
@@ -143,17 +150,13 @@ function performRoll(name, basicDice) {
     gameState.history.shift();
   }
 
-  broadcast({
-    type: "roll",
-    roll
-  });
+  broadcast({ type: "roll", roll });
 }
 
 /*
- * COMMAND ROUTER
+ * DISPATCH
  */
-
-function handleCommand(msg) {
+function handle(msg) {
 
   switch (msg.type) {
 
@@ -161,36 +164,35 @@ function handleCommand(msg) {
       performRoll(msg.player, msg.basic);
       break;
 
-    case "addStress":
-      addStress(msg.name);
+    case "createActor":
+      createActor(msg.name);
       break;
 
-    case "removeStress":
-      removeStress(msg.name);
+    case "removeActor":
+      removeActor(msg.name);
       break;
 
-    case "setStress":
-      setStress(msg.name, msg.value);
+    case "shuffleInitiative":
+      shuffleInitiative();
       break;
 
-    case "createCharacter":
-      createCharacter(msg.name);
+    case "nextTurn":
+      nextTurn();
       break;
 
-    case "deleteCharacter":
-      deleteCharacter(msg.name);
+    case "adHocRoll":
+      performRoll("AdHoc", msg.basic);
       break;
 
     default:
-      console.log("Unknown command:", msg.type);
+      console.log("Unknown:", msg.type);
   }
 }
 
 /*
  * CONNECTIONS
  */
-
-wss.on("connection", (ws) => {
+wss.on("connection", ws => {
 
   console.log("Client connected");
 
@@ -199,28 +201,15 @@ wss.on("connection", (ws) => {
     state: gameState
   }));
 
-  ws.on("message", (raw) => {
+  ws.on("message", raw => {
 
     try {
-
       const msg = JSON.parse(raw.toString());
-
-      console.log("RECEIVED:", msg);
-
-      handleCommand(msg);
-
-    } catch (err) {
-
-      console.log("BAD MESSAGE:", err);
-
+      handle(msg);
+    } catch (e) {
+      console.log("BAD MESSAGE:", e);
     }
 
   });
 
-  ws.on("close", () => {
-    console.log("Client disconnected");
-  });
-
 });
-
-console.log("Server ready");
