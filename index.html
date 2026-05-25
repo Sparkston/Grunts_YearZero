@@ -9,6 +9,234 @@ body {
   font-family: system-ui;
   max-width: 1000px;
   margin: 20px auto;
+  padding: 20px;
+
+  background:
+    radial-gradient(circle at 12% 18%, rgba(60, 80, 40, 0.95) 0 18%, transparent 19%),
+    radial-gradient(circle at 35% 65%, rgba(90, 110, 60, 0.9) 0 22%, transparent 23%),
+    radial-gradient(circle at 70% 25%, rgba(40, 60, 30, 0.95) 0 20%, transparent 21%),
+    radial-gradient(circle at 85% 75%, rgba(100, 120, 70, 0.85) 0 18%, transparent 19%),
+    #2f3b22;
+}
+
+.player {
+  border: 1px solid rgba(0,0,0,0.4);
+  background: rgba(255,255,255,0.85);
+  padding: 8px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+}
+
+.active {
+  border: 2px solid green;
+  background: rgba(220,255,220,0.9);
+}
+
+button { margin-left: 4px; }
+</style>
+</head>
+
+<body>
+
+<h2>YZE Actor Table</h2>
+
+<div id="status">Connected</div>
+
+<hr>
+
+<select id="actorSelect"></select>
+<input id="newName" placeholder="NPC name (optional)">
+<input id="basic" type="number" value="5" min="0">
+
+<button onclick="roll()">Roll</button>
+<button onclick="shuffle()">Shuffle</button>
+<button onclick="nextTurn()">Next</button>
+<button onclick="critical()">Critical</button>
+
+<hr>
+
+<h3>Actors</h3>
+<div id="actors"></div>
+
+<h3>History</h3>
+<div id="history"></div>
+
+<script>
+
+let ws;
+let state;
+
+function connect() {
+  ws = new WebSocket("wss://grunts-yearzero.onrender.com");
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+
+    if (msg.type === "state") {
+      state = msg.state;
+      renderAll();
+    }
+
+    if (msg.type === "roll") {
+      state.history.push(msg.roll);
+      renderHistory();
+    }
+  };
+}
+
+function send(msg) {
+  ws.send(JSON.stringify(msg));
+}
+
+/* ---------------- ACTIONS ---------------- */
+
+function roll() {
+  const sel = actorSelect.value;
+  const basic = Number(document.getElementById("basic").value);
+  const name = document.getElementById("newName").value.trim();
+
+  if (sel === "__new_roll__") {
+    send({ type: "adHocRoll", basic });
+    return;
+  }
+
+  if (sel === "__new_actor__") {
+    const finalName = name || `Actor ${Math.floor(Math.random()*10000)}`;
+    send({ type: "createActor", name: finalName });
+    send({ type: "roll", name: finalName, basic });
+    return;
+  }
+
+  send({ type: "roll", name: sel, basic });
+}
+
+function panic(name) {
+  send({ type: "panic", name });
+}
+
+function critical() {
+  send({ type: "critical" });
+}
+
+function shuffle() {
+  send({ type: "shuffleInitiative" });
+}
+
+function nextTurn() {
+  send({ type: "nextTurn" });
+}
+
+function setStress(name, delta) {
+  const a = state.actors[name];
+  send({
+    type: "setStress",
+    name,
+    stress: (a.stress || 0) + delta
+  });
+}
+
+/* ---------------- RENDER ---------------- */
+
+function renderAll() {
+  renderSelect();
+  renderActors();
+  renderHistory();
+}
+
+function renderSelect() {
+  const sel = actorSelect;
+  const current = sel.value;
+
+  sel.innerHTML = "";
+
+  for (const name of Object.keys(state.actors)) {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  }
+
+  sel.innerHTML += `
+    <option disabled>──────────</option>
+    <option value="__new_actor__">+ New Actor</option>
+    <option value="__new_roll__">+ New Roller</option>
+  `;
+}
+
+function renderActors() {
+  const div = document.getElementById("actors");
+  div.innerHTML = "";
+
+  const order = state.turnOrder || [];
+
+  for (let i = 0; i < order.length; i++) {
+    const name = order[i];
+    const a = state.actors[name];
+    if (!a) continue;
+
+    const el = document.createElement("div");
+    el.className = "player" + (i === state.currentTurnIndex ? " active" : "");
+
+    el.innerHTML = `
+      <b>${name}</b> (${a.type})<br>
+      Stress: ${a.stress}
+
+      <button onclick="setStress('${name}',1)">+</button>
+      <button onclick="setStress('${name}',-1)">-</button>
+
+      <button onclick="panic('${name}')">Panic</button>
+
+      ${a.type === "npc"
+        ? `<button onclick="removeActor('${name}')">Remove</button>`
+        : ""
+      }
+    `;
+
+    div.appendChild(el);
+  }
+}
+
+function renderHistory() {
+  const div = document.getElementById("history");
+
+  div.innerHTML = (state.history || [])
+    .slice()
+    .reverse()
+    .map(r => `
+      <div class="player">
+        <b>${r.name}</b> (${r.time})<br>
+
+        ${r.d66 !== undefined ? `<b>D66:</b> ${r.d66}<br>
+        <b>Injury:</b> ${r.injury}<br>
+        <b>Effects:</b> ${r.effects}<br>` : ""}
+
+        ${r.dice !== undefined ? `d6: ${r.dice}<br>` : ""}
+        ${r.total !== undefined ? `Total: ${r.total}<br>` : ""}
+
+        ${r.basic ? `Basic: ${r.basic.join(" ")}<br>` : ""}
+        ${r.stress ? `Stress: ${r.stress.join(" ")}<br>` : ""}
+
+        ${r.resultText ? `<b>${r.resultText}</b>` : ""}
+      </div>
+    `).join("");
+}
+
+connect();
+
+</script>
+
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YZE Table</title>
+
+<style>
+body {
+  font-family: system-ui;
+  max-width: 1000px;
+  margin: 20px auto;
 }
 
 .player {
