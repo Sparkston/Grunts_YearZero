@@ -132,6 +132,13 @@ function roll() {
 function panic(name) {
   send({ type: "panic", name });
 }
+  
+function removeActor(name) {
+  send({
+    type: "removeActor",
+    name
+  });
+}
 
 function critical() {
   send({ type: "critical" });
@@ -213,33 +220,44 @@ function renderActors() {
   const order = state.turnOrder || [];
 
   order.forEach((name, i) => {
+
     const a = state.actors[name];
     if (!a) return;
 
     const el = document.createElement("div");
-    el.className = "player" + (i === state.currentTurnIndex ? " active" : "");
+    el.className =
+      "player" +
+      (i === state.currentTurnIndex ? " active" : "");
 
-    el.innerHTML = `
+    let html = `
       <b>${name}</b> (${a.type})<br>
       Stress: ${a.stress}
+    `;
 
-      ${isGM ? `
+    if (isGM) {
+      html += `
         <button onclick="setStress('${name}',1)">+</button>
         <button onclick="setStress('${name}',-1)">-</button>
-      ` : ""}
-        
-        <button onclick="panic('${name}')">Panic</button>
-        
-        ${a.type === "npc"
-          ? `<button onclick="removeActor('${name}')">Remove</button>`
-          : ""
-        }
+      `;
+    }
+
+    html += `
+      <button onclick="panic('${name}')">Panic</button>
     `;
+
+    if (a.type === "npc") {
+      html += `
+        <button onclick="removeActor('${name}')">
+          Remove
+        </button>
+      `;
+    }
+
+    el.innerHTML = html;
 
     div.appendChild(el);
   });
 }
-
 /* ---------------- HISTORY ---------------- */
 
 function renderHistory() {
