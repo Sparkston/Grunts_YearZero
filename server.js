@@ -67,10 +67,7 @@ function pushHistory(entry) {
     gameState.history = gameState.history.slice(-200);
   }
 
-  broadcast({
-    type: "historyAppend",
-    entry
-  });
+  broadcastState();
 }
 
 /* ---------------- PANIC ---------------- */
