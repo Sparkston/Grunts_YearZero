@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>YZE Table</title>
+<title>YZE Table V2</title>
 
 <style>
 body {
@@ -20,8 +20,8 @@ body {
 }
 
 .player {
-  border: 1px solid rgba(0,0,0,0.4);
   background: rgba(255,255,255,0.85);
+  border: 1px solid rgba(0,0,0,0.4);
   padding: 8px;
   margin-bottom: 6px;
   border-radius: 6px;
@@ -32,21 +32,27 @@ body {
   background: rgba(220,255,220,0.9);
 }
 
+#roleBanner {
+  margin-bottom: 10px;
+  padding: 6px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  font-weight: bold;
+}
+
 button { margin-left: 4px; }
 </style>
 </head>
 
 <body>
 
+<div id="roleBanner"></div>
+
 <h2>YZE Actor Table</h2>
 
-<div id="status">Connected</div>
-
-<hr>
-
 <select id="actorSelect"></select>
-<input id="newName" placeholder="NPC name (optional)">
-<input id="basic" type="number" value="5" min="0">
+<input id="newName" placeholder="NPC name">
+<input id="basic" type="number" value="5">
 
 <button onclick="roll()">Roll</button>
 <button onclick="shuffle()">Shuffle</button>
@@ -63,6 +69,9 @@ button { margin-left: 4px; }
 
 <script>
 
+const urlParams = new URLSearchParams(window.location.search);
+let isGM = urlParams.get("gm") === "1";
+
 let ws;
 let state;
 
@@ -71,18 +80,21 @@ let state;
 function connect() {
   ws = new WebSocket("wss://grunts-yearzero.onrender.com");
 
+  ws.onopen = () => {
+    send({
+      type: "setRole",
+      role: isGM ? "gm" : "player"
+    });
+
+    renderRole();
+  };
+
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
 
     if (msg.type === "state") {
       state = msg.state;
       renderAll();
-    }
-
-    if (msg.type === "roll") {
-      // IMPORTANT: do NOT mutate state.history here
-      // server is the only source of truth
-      renderHistory();
     }
   };
 }
@@ -91,12 +103,12 @@ function send(msg) {
   ws.send(JSON.stringify(msg));
 }
 
-/* ---------------- ACTIONS ---------------- */
+/* ---------------- UI ACTIONS ---------------- */
 
 function roll() {
-  const sel = document.getElementById("actorSelect").value;
+  const sel = actorSelect.value;
   const basic = Number(document.getElementById("basic").value);
-  const nameInput = document.getElementById("newName").value.trim();
+  const name = document.getElementById("newName").value.trim();
 
   if (sel === "__new_roll__") {
     send({ type: "adHocRoll", basic });
@@ -104,13 +116,9 @@ function roll() {
   }
 
   if (sel === "__new_actor__") {
-    const finalName =
-      nameInput || `Actor ${Math.floor(Math.random() * 10000)}`;
-
+    const finalName = name || `Actor ${Math.floor(Math.random()*10000)}`;
     send({ type: "createActor", name: finalName });
     send({ type: "roll", name: finalName, basic });
-
-    document.getElementById("newName").value = "";
     return;
   }
 
@@ -135,6 +143,7 @@ function nextTurn() {
 
 function setStress(name, delta) {
   const a = state.actors[name];
+
   send({
     type: "setStress",
     name,
@@ -144,17 +153,19 @@ function setStress(name, delta) {
 
 /* ---------------- RENDER ---------------- */
 
+function renderRole() {
+  document.getElementById("roleBanner").innerText =
+    isGM ? "GM MODE ACTIVE" : "PLAYER MODE";
+}
+
 function renderAll() {
   renderSelect();
   renderActors();
   renderHistory();
 }
 
-/* FIXED: no DOM corruption, stable rebuild */
 function renderSelect() {
-  const sel = document.getElementById("actorSelect");
-  const current = sel.value;
-
+  const sel = actorSelect;
   sel.innerHTML = "";
 
   for (const name of Object.keys(state.actors)) {
@@ -164,22 +175,11 @@ function renderSelect() {
     sel.appendChild(opt);
   }
 
-  const sep = document.createElement("option");
-  sep.disabled = true;
-  sep.textContent = "──────────";
-  sel.appendChild(sep);
-
-  const opt1 = document.createElement("option");
-  opt1.value = "__new_actor__";
-  opt1.textContent = "+ New Actor";
-  sel.appendChild(opt1);
-
-  const opt2 = document.createElement("option");
-  opt2.value = "__new_roll__";
-  opt2.textContent = "+ New Roller";
-  sel.appendChild(opt2);
-
-  if (state.actors[current]) sel.value = current;
+  sel.innerHTML += `
+    <option disabled>──────────</option>
+    <option value="__new_actor__">+ New Actor</option>
+    <option value="__new_roll__">+ New Roller</option>
+  `;
 }
 
 function renderActors() {
@@ -188,10 +188,9 @@ function renderActors() {
 
   const order = state.turnOrder || [];
 
-  for (let i = 0; i < order.length; i++) {
-    const name = order[i];
+  order.forEach((name, i) => {
     const a = state.actors[name];
-    if (!a) continue;
+    if (!a) return;
 
     const el = document.createElement("div");
     el.className = "player" + (i === state.currentTurnIndex ? " active" : "");
@@ -200,22 +199,18 @@ function renderActors() {
       <b>${name}</b> (${a.type})<br>
       Stress: ${a.stress}
 
-      <button onclick="setStress('${name}',1)">+</button>
-      <button onclick="setStress('${name}',-1)">-</button>
+      ${isGM ? `
+        <button onclick="setStress('${name}',1)">+</button>
+        <button onclick="setStress('${name}',-1)">-</button>
+      ` : ""}
 
       <button onclick="panic('${name}')">Panic</button>
-
-      ${a.type === "npc"
-        ? `<button onclick="removeActor('${name}')">Remove</button>`
-        : ""
-      }
     `;
 
     div.appendChild(el);
-  }
+  });
 }
 
-/* FIXED: server is sole source of truth */
 function renderHistory() {
   const div = document.getElementById("history");
 
@@ -224,38 +219,21 @@ function renderHistory() {
     .reverse()
     .map(r => `
       <div class="player">
-
         <b>${r.name}</b> (${r.time})<br>
 
         ${r.basic ? `Basic: ${r.basic.join(" ")}<br>` : ""}
         ${r.stress ? `Stress: ${r.stress.join(" ")}<br>` : ""}
 
-        ${typeof r.successes === "number"
-          ? `<b>Successes:</b> ${r.successes}<br>`
-          : ""
-        }
-
-        ${typeof r.banes === "number"
-          ? `<b>Banes:</b> ${r.banes}<br>`
-          : ""
-        }
-
-        ${r.dice !== undefined ? `d6: ${r.dice}<br>` : ""}
-        ${r.total !== undefined ? `Total: ${r.total}<br>` : ""}
+        ${typeof r.successes === "number" ? `Successes: ${r.successes}<br>` : ""}
+        ${typeof r.banes === "number" ? `Banes: ${r.banes}<br>` : ""}
 
         ${r.d66 !== undefined ? `
           <hr>
           <b>D66:</b> ${r.d66}<br>
-          <b>Injury:</b> ${r.injury}<br>
-          <b>Effects:</b> ${r.effects}<br>
-          ${r.fatal ? `<b>Fatal:</b> Yes<br>` : ""}
+          <b>${r.injury || ""}</b><br>
         ` : ""}
-
-        ${r.resultText ? `<b>${r.resultText}</b>` : ""}
-
       </div>
-    `)
-    .join("");
+    `).join("");
 }
 
 connect();
