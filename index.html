@@ -35,7 +35,6 @@ button {
 
 <hr>
 
-<!-- CONTROL BAR -->
 <select id="actorSelect"></select>
 
 <input id="newName" placeholder="NPC name (optional)">
@@ -44,12 +43,12 @@ button {
 
 <button onclick="roll()">Roll</button>
 
-<button onclick="shuffle()">Shuffle Initiative</button>
-<button onclick="nextTurn()">Next Turn</button>
+<button onclick="shuffle()">Shuffle</button>
+<button onclick="nextTurn()">Next</button>
 
 <hr>
 
-<h3>Actors (Initiative Order)</h3>
+<h3>Actors</h3>
 <div id="actors"></div>
 
 <h3>History</h3>
@@ -58,12 +57,7 @@ button {
 <script>
 
 let ws;
-let state = {
-  actors: {},
-  turnOrder: [],
-  currentTurnIndex: 0,
-  history: []
-};
+let state;
 
 /* ---------------- CONNECT ---------------- */
 
@@ -80,14 +74,7 @@ function connect() {
     const msg = JSON.parse(e.data);
 
     if (msg.type === "state") {
-
-      state = msg.state || {
-        actors: {},
-        turnOrder: [],
-        currentTurnIndex: 0,
-        history: []
-      };
-
+      state = msg.state;
       renderAll();
     }
 
@@ -98,12 +85,8 @@ function connect() {
   };
 }
 
-/* ---------------- SEND ---------------- */
-
 function send(msg) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(msg));
-  }
+  ws.send(JSON.stringify(msg));
 }
 
 /* ---------------- ACTIONS ---------------- */
@@ -112,28 +95,30 @@ function roll() {
 
   const sel = document.getElementById("actorSelect").value;
   const basic = Number(document.getElementById("basic").value);
-  const nameInput = document.getElementById("newName").value.trim();
+  const name = document.getElementById("newName").value.trim();
 
-  // NEW ROLLER ONLY
   if (sel === "__new_roll__") {
     send({ type: "adHocRoll", basic });
     return;
   }
 
-  // NEW ACTOR + ROLL
   if (sel === "__new_actor__") {
 
-    const name = nameInput || `Actor ${Math.floor(Math.random() * 10000)}`;
+    const finalName =
+      name || `Actor ${Math.floor(Math.random() * 10000)}`;
 
-    send({ type: "createActor", name });
+    send({ type: "createActor", name: finalName });
 
-    send({ type: "roll", player: name, basic });
+    send({
+      type: "roll",
+      player: finalName,
+      basic
+    });
 
     document.getElementById("newName").value = "";
     return;
   }
 
-  // NORMAL ACTOR ROLL
   send({
     type: "roll",
     player: sel,
@@ -149,10 +134,6 @@ function nextTurn() {
   send({ type: "nextTurn" });
 }
 
-function removeActor(name) {
-  send({ type: "removeActor", name });
-}
-
 /* ---------------- RENDER ---------------- */
 
 function renderAll() {
@@ -161,17 +142,13 @@ function renderAll() {
   renderHistory();
 }
 
-/* ---------------- DROPDOWN ---------------- */
-
 function renderSelect() {
 
   const sel = document.getElementById("actorSelect");
-
   const current = sel.value;
 
   sel.innerHTML = "";
 
-  // actors
   for (const name of Object.keys(state.actors)) {
     const opt = document.createElement("option");
     opt.value = name;
@@ -179,13 +156,11 @@ function renderSelect() {
     sel.appendChild(opt);
   }
 
-  // separator
   const sep = document.createElement("option");
   sep.disabled = true;
   sep.textContent = "──────────";
   sel.appendChild(sep);
 
-  // UI actions
   const a1 = document.createElement("option");
   a1.value = "__new_actor__";
   a1.textContent = "+ New Actor";
@@ -201,8 +176,6 @@ function renderSelect() {
   }
 }
 
-/* ---------------- ACTORS ---------------- */
-
 function renderActors() {
 
   const div = document.getElementById("actors");
@@ -217,20 +190,23 @@ function renderActors() {
 
     if (!a) continue;
 
-    const isActive = i === state.currentTurnIndex;
+    const active = i === state.currentTurnIndex;
 
     const el = document.createElement("div");
-    el.className = "player" + (isActive ? " active" : "");
+    el.className = "player" + (active ? " active" : "");
 
     el.innerHTML = `
       <b>${name}</b> (${a.type})<br>
 
-      Stress: ${a.stress ?? 0}
+      Stress: ${a.stress}
 
-      <button onclick="adjustStress('${name}', 1)">+</button>
-      <button onclick="adjustStress('${name}', -1)">-</button>
+      <button onclick="setStress('${name}',1)">+</button>
+      <button onclick="setStress('${name}',-1)">-</button>
 
-      <button onclick="removeActor('${name}')">Remove</button>
+      ${a.type === "npc"
+        ? `<button onclick="removeActor('${name}')">Remove</button>`
+        : ""
+      }
     `;
 
     div.appendChild(el);
@@ -239,15 +215,22 @@ function renderActors() {
 
 /* ---------------- STRESS ---------------- */
 
-function adjustStress(name, delta) {
+function setStress(name, delta) {
 
   const a = state.actors[name];
   if (!a) return;
 
-  a.stress = Math.max(0, (a.stress || 0) + delta);
+  send({
+    type: "setStress",
+    name,
+    stress: (a.stress || 0) + delta
+  });
+}
 
-  // NOTE: no server sync needed for this version? (server is authoritative for rolls only)
-  // If you want full sync later, we can server-authorize this.
+/* ---------------- REMOVE ---------------- */
+
+function removeActor(name) {
+  send({ type: "removeActor", name });
 }
 
 /* ---------------- HISTORY ---------------- */
@@ -256,16 +239,17 @@ function renderHistory() {
 
   const div = document.getElementById("history");
 
-  const h = state.history || [];
-
-  div.innerHTML = h.slice().reverse().map(r => `
-    <div class="player">
-      <b>${r.name}</b> (${r.time})<br>
-      Basic: ${r.basic.join(" ")}<br>
-      Stress: ${r.stress.join(" ")}<br>
-      Successes: ${r.successes} | Banes: ${r.banes}
-    </div>
-  `).join("");
+  div.innerHTML = (state.history || [])
+    .slice()
+    .reverse()
+    .map(r => `
+      <div class="player">
+        <b>${r.name}</b> (${r.time})<br>
+        Basic: ${r.basic.join(" ")}<br>
+        Stress: ${r.stress.join(" ")}<br>
+        Successes: ${r.successes} | Banes: ${r.banes}
+      </div>
+    `).join("");
 }
 
 connect();
