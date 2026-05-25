@@ -21,37 +21,35 @@ body {
   border: 2px solid green;
 }
 
-button { margin-left: 4px; }
+button {
+  margin-left: 4px;
+}
 </style>
 </head>
 
 <body>
 
-<h2>YZE Table</h2>
+<h2>YZE Actor Table</h2>
 
 <div id="status">Connecting...</div>
 
 <hr>
 
+<!-- CONTROL BAR -->
 <select id="actorSelect"></select>
 
-<input id="newName" placeholder="NPC name">
+<input id="newName" placeholder="NPC name (optional)">
 
 <input id="basic" type="number" value="5" min="0">
 
 <button onclick="roll()">Roll</button>
 
-<button onclick="newActor()">New Actor</button>
-<button onclick="adHoc()">New Roller</button>
-
-<br><br>
-
 <button onclick="shuffle()">Shuffle Initiative</button>
-<button onclick="next()">Next Turn</button>
+<button onclick="nextTurn()">Next Turn</button>
 
 <hr>
 
-<h3>Actors</h3>
+<h3>Actors (Initiative Order)</h3>
 <div id="actors"></div>
 
 <h3>History</h3>
@@ -60,7 +58,14 @@ button { margin-left: 4px; }
 <script>
 
 let ws;
-let state;
+let state = {
+  actors: {},
+  turnOrder: [],
+  currentTurnIndex: 0,
+  history: []
+};
+
+/* ---------------- CONNECT ---------------- */
 
 function connect() {
 
@@ -75,10 +80,15 @@ function connect() {
     const msg = JSON.parse(e.data);
 
     if (msg.type === "state") {
-      state = msg.state;
-      renderActors();
-      renderSelect();
-      renderHistory();
+
+      state = msg.state || {
+        actors: {},
+        turnOrder: [],
+        currentTurnIndex: 0,
+        history: []
+      };
+
+      renderAll();
     }
 
     if (msg.type === "roll") {
@@ -88,75 +98,117 @@ function connect() {
   };
 }
 
-function send(m) {
-  ws.send(JSON.stringify(m));
+/* ---------------- SEND ---------------- */
+
+function send(msg) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify(msg));
+  }
 }
 
-/*
- * ACTIONS
- */
+/* ---------------- ACTIONS ---------------- */
 
 function roll() {
 
-  const name = document.getElementById("actorSelect").value;
+  const sel = document.getElementById("actorSelect").value;
   const basic = Number(document.getElementById("basic").value);
+  const nameInput = document.getElementById("newName").value.trim();
 
-  send({ type: "roll", player: name, basic });
-}
+  // NEW ROLLER ONLY
+  if (sel === "__new_roll__") {
+    send({ type: "adHocRoll", basic });
+    return;
+  }
 
-function newActor() {
+  // NEW ACTOR + ROLL
+  if (sel === "__new_actor__") {
 
-  const name = document.getElementById("newName").value;
+    const name = nameInput || `Actor ${Math.floor(Math.random() * 10000)}`;
 
-  send({ type: "createActor", name });
+    send({ type: "createActor", name });
 
-  document.getElementById("newName").value = "";
-}
+    send({ type: "roll", player: name, basic });
 
-function adHoc() {
+    document.getElementById("newName").value = "";
+    return;
+  }
 
-  const basic = Number(document.getElementById("basic").value);
-
-  send({ type: "adHocRoll", basic });
+  // NORMAL ACTOR ROLL
+  send({
+    type: "roll",
+    player: sel,
+    basic
+  });
 }
 
 function shuffle() {
   send({ type: "shuffleInitiative" });
 }
 
-function next() {
+function nextTurn() {
   send({ type: "nextTurn" });
 }
 
-/*
- * RENDER SELECT
- */
+function removeActor(name) {
+  send({ type: "removeActor", name });
+}
+
+/* ---------------- RENDER ---------------- */
+
+function renderAll() {
+  renderSelect();
+  renderActors();
+  renderHistory();
+}
+
+/* ---------------- DROPDOWN ---------------- */
 
 function renderSelect() {
 
   const sel = document.getElementById("actorSelect");
+
+  const current = sel.value;
+
   sel.innerHTML = "";
 
+  // actors
   for (const name of Object.keys(state.actors)) {
-
     const opt = document.createElement("option");
     opt.value = name;
     opt.textContent = name;
-
     sel.appendChild(opt);
+  }
+
+  // separator
+  const sep = document.createElement("option");
+  sep.disabled = true;
+  sep.textContent = "──────────";
+  sel.appendChild(sep);
+
+  // UI actions
+  const a1 = document.createElement("option");
+  a1.value = "__new_actor__";
+  a1.textContent = "+ New Actor";
+  sel.appendChild(a1);
+
+  const a2 = document.createElement("option");
+  a2.value = "__new_roll__";
+  a2.textContent = "+ New Roller";
+  sel.appendChild(a2);
+
+  if (state.actors[current]) {
+    sel.value = current;
   }
 }
 
-/*
- * RENDER ACTORS
- */
+/* ---------------- ACTORS ---------------- */
 
 function renderActors() {
 
   const div = document.getElementById("actors");
   div.innerHTML = "";
 
-  const order = state.turnOrder;
+  const order = state.turnOrder || [];
 
   for (let i = 0; i < order.length; i++) {
 
@@ -173,10 +225,10 @@ function renderActors() {
     el.innerHTML = `
       <b>${name}</b> (${a.type})<br>
 
-      Stress: ${a.stress}
+      Stress: ${a.stress ?? 0}
 
-      <button onclick="addStress('${name}')">+</button>
-      <button onclick="removeStress('${name}')">-</button>
+      <button onclick="adjustStress('${name}', 1)">+</button>
+      <button onclick="adjustStress('${name}', -1)">-</button>
 
       <button onclick="removeActor('${name}')">Remove</button>
     `;
@@ -185,29 +237,28 @@ function renderActors() {
   }
 }
 
-/*
- * STRESS (simple, client-side send only)
- */
+/* ---------------- STRESS ---------------- */
 
-function addStress(name) {
-  state.actors[name].stress++;
-  send({ type: "noop" });
+function adjustStress(name, delta) {
+
+  const a = state.actors[name];
+  if (!a) return;
+
+  a.stress = Math.max(0, (a.stress || 0) + delta);
+
+  // NOTE: no server sync needed for this version? (server is authoritative for rolls only)
+  // If you want full sync later, we can server-authorize this.
 }
 
-function removeStress(name) {
-  state.actors[name].stress = Math.max(0, state.actors[name].stress - 1);
-  send({ type: "noop" });
-}
-
-/*
- * HISTORY
- */
+/* ---------------- HISTORY ---------------- */
 
 function renderHistory() {
 
   const div = document.getElementById("history");
 
-  div.innerHTML = state.history.slice().reverse().map(r => `
+  const h = state.history || [];
+
+  div.innerHTML = h.slice().reverse().map(r => `
     <div class="player">
       <b>${r.name}</b> (${r.time})<br>
       Basic: ${r.basic.join(" ")}<br>
@@ -216,305 +267,6 @@ function renderHistory() {
     </div>
   `).join("");
 }
-
-connect();
-
-</script>
-
-</body>
-</html><!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>YZE Engine (Stateful)</title>
-
-<style>
-body {
-  font-family: system-ui, sans-serif;
-  max-width: 1000px;
-  margin: 20px auto;
-  padding: 10px;
-}
-
-.row { margin-bottom: 10px; }
-
-button {
-  margin-left: 4px;
-  padding: 4px 8px;
-}
-
-input, select {
-  padding: 4px;
-}
-
-.player {
-  border: 1px solid #ccc;
-  padding: 8px;
-  margin-bottom: 6px;
-  border-radius: 6px;
-}
-
-.roll {
-  border: 1px solid #ccc;
-  margin-top: 10px;
-  padding: 10px;
-  border-radius: 6px;
-}
-
-.good { color: green; font-weight: bold; }
-.bad { color: darkred; font-weight: bold; }
-
-.small { color: #666; font-size: 12px; }
-
-.dice { letter-spacing: 2px; }
-</style>
-</head>
-
-<body>
-
-<h2>Year Zero Engine Multiplayer</h2>
-
-<div id="status">Connecting...</div>
-
-<hr>
-
-<!-- ROLL PANEL -->
-<div class="row">
-
-  Character:
-
-  <select id="player"></select>
-
-  Basic Dice:
-
-  <input id="basic" type="number" value="5" min="0" style="width:70px">
-
-  <button onclick="roll()">Roll</button>
-
-</div>
-
-<!-- CREATE CHARACTER -->
-<div class="row">
-
-  <input id="newChar" placeholder="New character name">
-
-  <button onclick="createCharacter()">Add Character</button>
-
-</div>
-
-<hr>
-
-<!-- PLAYER LIST -->
-<h3>Characters</h3>
-<div id="players"></div>
-
-<hr>
-
-<h3>Roll History</h3>
-<div id="history"></div>
-
-<script>
-
-let ws = null;
-let gameState = null;
-
-function connect() {
-
-  ws = new WebSocket("wss://grunts-yearzero.onrender.com");
-
-  ws.onopen = () => {
-    document.getElementById("status").textContent = "Connected";
-  };
-
-  ws.onclose = () => {
-    document.getElementById("status").textContent =
-      "Disconnected (reconnecting...)";
-    setTimeout(connect, 2000);
-  };
-
-  ws.onmessage = (event) => {
-
-    const msg = JSON.parse(event.data);
-
-    console.log("RECEIVED:", msg);
-
-    if (msg.type === "state") {
-
-      gameState = msg.state;
-
-      renderPlayers();
-      renderSelector();
-      renderHistory();
-
-    }
-
-    if (msg.type === "roll") {
-
-      gameState.history.push(msg.roll);
-      renderHistory();
-
-    }
-  };
-}
-
-/*
- * SEND
- */
-
-function send(obj) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify(obj));
-  }
-}
-
-/*
- * ROLL
- */
-
-function roll() {
-
-  const player =
-    document.getElementById("player").value;
-
-  const basic =
-    Number(document.getElementById("basic").value);
-
-  send({
-    type: "roll",
-    player,
-    basic
-  });
-}
-
-/*
- * STRESS
- */
-
-function addStress(name) {
-  send({ type: "addStress", name });
-}
-
-function removeStress(name) {
-  send({ type: "removeStress", name });
-}
-
-/*
- * CREATE CHARACTER
- */
-
-function createCharacter() {
-
-  const name =
-    document.getElementById("newChar").value.trim();
-
-  if (!name) return;
-
-  send({
-    type: "createCharacter",
-    name
-  });
-
-  document.getElementById("newChar").value = "";
-}
-
-/*
- * RENDER SELECTOR
- */
-
-function renderSelector() {
-
-  const sel = document.getElementById("player");
-
-  const current = sel.value;
-
-  sel.innerHTML = "";
-
-  for (const name of Object.keys(gameState.players)) {
-
-    const opt = document.createElement("option");
-
-    opt.value = name;
-    opt.textContent = name;
-
-    sel.appendChild(opt);
-  }
-
-  if (gameState.players[current]) {
-    sel.value = current;
-  }
-}
-
-/*
- * RENDER PLAYERS
- */
-
-function renderPlayers() {
-
-  const div = document.getElementById("players");
-
-  div.innerHTML = "";
-
-  for (const [name, p] of Object.entries(gameState.players)) {
-
-    const el = document.createElement("div");
-    el.className = "player";
-
-    el.innerHTML = `
-      <b>${name}</b>
-      <br>
-      Stress: <b>${p.stress}</b>
-      <br><br>
-
-      <button onclick="addStress('${name}')">+</button>
-      <button onclick="removeStress('${name}')">-</button>
-    `;
-
-    div.appendChild(el);
-  }
-}
-
-/*
- * RENDER HISTORY
- */
-
-function renderHistory() {
-
-  const div = document.getElementById("history");
-
-  const rolls = [...gameState.history].reverse();
-
-  div.innerHTML = rolls.map(r => `
-    <div class="roll">
-
-      <b>${r.name}</b>
-      <span class="small">(${r.time})</span>
-
-      <br><br>
-
-      Stress Level: <b>${r.stressLevel}</b>
-
-      <br><br>
-
-      <b>Basic:</b>
-      <span class="dice">${r.basic.join(" ")}</span>
-
-      <br>
-
-      <b>Stress:</b>
-      <span class="dice">${r.stress.join(" ")}</span>
-
-      <hr>
-
-      <div class="good">Successes: ${r.successes}</div>
-      <div class="bad">Banes: ${r.banes}</div>
-
-    </div>
-  `).join("");
-}
-
-/*
- * START
- */
 
 connect();
 
