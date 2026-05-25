@@ -90,15 +90,22 @@ function performPanic(name) {
   if (!actor) return;
 
   const d6 = Math.floor(Math.random() * 6) + 1;
-  const total = d6 + actor.stress;
+  const stress = actor.stress || 0;
+
+  const total = d6 + stress;
+  const resultText = resolvePanic(total);
 
   pushHistory({
+    type: "panic",
     name: `${name} Panic Test`,
-    dice: d6,
-    stress: actor.stress,
+    time: new Date().toLocaleTimeString(),
+
+    dice: [d6],
+    stressDice: stress > 0 ? [stress] : [],
+
+    stress,
     total,
-    resultText: resolvePanic(total),
-    time: new Date().toLocaleTimeString()
+    resultText
   });
 }
 
