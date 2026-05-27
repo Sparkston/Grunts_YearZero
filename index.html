@@ -75,6 +75,298 @@ const pcId = urlParams.get("pc");
 
 let ws;
 let state = null;
+
+/* ---------------- CONNECT ---------------- */
+
+function connect() {
+  ws = new WebSocket("wss://grunts-yearzero.onrender.com");
+
+  ws.onopen = () => {
+    send({
+      type: "setRole",
+      role: isGM ? "gm" : "player",
+      pc: pcId
+    });
+
+    renderRole();
+  };
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+
+    if (msg.type === "state") {
+      state = msg.state;
+      renderAll();
+    }
+  };
+}
+
+function send(msg) {
+  if (ws?.readyState === 1) {
+    ws.send(JSON.stringify(msg));
+  }
+}
+
+/* ---------------- ACTIONS ---------------- */
+
+function getActivePCId() {
+  return pcId || null;
+}
+
+function roll() {
+  const basic = Number(document.getElementById("basic").value) || 0;
+
+  const activePC = getActivePCId();
+
+  if (activePC) {
+    send({ type: "roll", name: activePC, basic });
+    return;
+  }
+
+  const sel = document.getElementById("actorSelect").value;
+  send({ type: "roll", name: sel, basic });
+}
+
+function panic(name) {
+  send({ type: "panic", name });
+}
+
+function critical() {
+  send({ type: "critical" });
+}
+
+function shuffle() {
+  send({ type: "shuffleInitiative" });
+}
+
+function nextTurn() {
+  send({ type: "nextTurn" });
+}
+
+function setStress(pcId, delta) {
+  const pc = state?.pcs?.[pcId];
+  if (!pc) return;
+
+  send({
+    type: "setStress",
+    name: pcId,
+    stress: pc.stress + delta
+  });
+}
+
+function removeActor(name) {
+  send({ type: "removeActor", name });
+}
+
+/* ---------------- RENDER ---------------- */
+
+function renderRole() {
+  document.getElementById("roleBanner").innerText =
+    (isGM ? "GM MODE" : "PLAYER MODE") +
+    (pcId ? " | " + pcId : "");
+}
+
+function renderAll() {
+  renderRole();
+  renderSelect();
+  renderActors();
+  renderHistory();
+}
+
+/* ---------------- SELECT ---------------- */
+
+function renderSelect() {
+  const sel = document.getElementById("actorSelect");
+  sel.innerHTML = "";
+
+  if (!state) return;
+
+  Object.keys(state.actors || {}).forEach(name => {
+    const opt = document.createElement("option");
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  });
+
+  const sep = document.createElement("option");
+  sep.disabled = true;
+  sep.textContent = "──────────";
+  sel.appendChild(sep);
+
+  const opt1 = document.createElement("option");
+  opt1.value = "__new_actor__";
+  opt1.textContent = "+ New Actor";
+  sel.appendChild(opt1);
+
+  const opt2 = document.createElement("option");
+  opt2.value = "__new_roll__";
+  opt2.textContent = "+ New Roller";
+  sel.appendChild(opt2);
+}
+
+/* ---------------- ACTORS ---------------- */
+
+function renderActors() {
+  const div = document.getElementById("actors");
+  div.innerHTML = "";
+
+  if (!state) return;
+
+  const order = state.turnOrder || [];
+
+  // ---------------- NPCs ----------------
+  for (let i = 0; i < order.length; i++) {
+    const name = order[i];
+    const a = state.actors?.[name];
+    if (!a) continue;
+
+    const el = document.createElement("div");
+    el.className = "player" + (i === state.currentTurnIndex ? " active" : "");
+
+    el.innerHTML = `
+      <b>${name}</b> (NPC)<br>
+      Stress: ${a.stress}
+
+      <button onclick="panic('${name}')">Panic</button>
+
+      ${a.type === "npc"
+        ? `<button onclick="removeActor('${name}')">Remove</button>`
+        : ""
+      }
+    `;
+
+    div.appendChild(el);
+  }
+
+  // ---------------- PCs ----------------
+  const pcs = state?.pcs || {};
+  const pcDefs = state?.pcDefs || {};
+
+  Object.keys(pcs).forEach(id => {
+    const pc = pcs[id];
+    const def = pcDefs[id] || {};
+
+    const el = document.createElement("div");
+    el.className = "player active";
+
+    el.innerHTML = `
+      <b>${def.name || id}</b> (PC)<br>
+      Callsign: ${def.callsign || ""}<br>
+      Stress: ${pc.stress}<br>
+      Health: ${pc.health}
+
+      <button onclick="setStress('${id}',1)">+</button>
+      <button onclick="setStress('${id}',-1)">-</button>
+      <button onclick="panic('${id}')">Panic</button>
+    `;
+
+    div.appendChild(el);
+  });
+}
+
+/* ---------------- HISTORY ---------------- */
+
+function renderHistory() {
+  const div = document.getElementById("history");
+  if (!state?.history) return;
+
+  div.innerHTML = [...state.history]
+    .slice()
+    .reverse()
+    .map(r => `
+      <div class="player">
+        <b>${r.name}</b> (${r.time || ""})<br>
+
+        ${r.basic ? `Basic: ${r.basic.join(" ")}<br>` : ""}
+        ${r.stress ? `Stress: ${r.stress.join(" ")}<br>` : ""}
+        ${typeof r.successes === "number" ? `Successes: ${r.successes}<br>` : ""}
+        ${typeof r.banes === "number" ? `Banes: ${r.banes}<br>` : ""}
+        ${r.resultText ? `<b>${r.resultText}</b>` : ""}
+      </div>
+    `).join("");
+}
+
+connect();
+</script>
+
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YZE Table V2</title>
+
+<style>
+body {
+  font-family: system-ui;
+  max-width: 1000px;
+  margin: 20px auto;
+  padding: 20px;
+
+  background:
+    radial-gradient(circle at 12% 18%, rgba(60, 80, 40, 0.95) 0 18%, transparent 19%),
+    radial-gradient(circle at 35% 65%, rgba(90, 110, 60, 0.9) 0 22%, transparent 23%),
+    radial-gradient(circle at 70% 25%, rgba(40, 60, 30, 0.95) 0 20%, transparent 21%),
+    radial-gradient(circle at 85% 75%, rgba(100, 120, 70, 0.85) 0 18%, transparent 19%),
+    #2f3b22;
+}
+
+.player {
+  background: rgba(255,255,255,0.85);
+  border: 1px solid rgba(0,0,0,0.4);
+  padding: 8px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+}
+
+.active {
+  border: 2px solid green;
+  background: rgba(220,255,220,0.9);
+}
+
+#roleBanner {
+  margin-bottom: 10px;
+  padding: 6px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  font-weight: bold;
+}
+
+button { margin-left: 4px; }
+</style>
+</head>
+
+<body>
+
+<div id="roleBanner"></div>
+
+<h2>YZE Actor Table</h2>
+
+<select id="actorSelect"></select>
+<input id="newName" placeholder="NPC name (optional)">
+<input id="basic" type="number" value="5" min="0">
+
+<button onclick="roll()">Roll</button>
+<button onclick="shuffle()">Shuffle</button>
+<button onclick="nextTurn()">Next</button>
+<button onclick="critical()">Critical</button>
+
+<hr>
+
+<h3>Actors</h3>
+<div id="actors"></div>
+
+<h3>History</h3>
+<div id="history"></div>
+
+<script>
+const urlParams = new URLSearchParams(window.location.search);
+
+const isGM = urlParams.get("gm") === "1";
+const pcId = urlParams.get("pc");
+
+let ws;
+let state = null;
 let pcs = {};
 let pcDefs = {};
 
