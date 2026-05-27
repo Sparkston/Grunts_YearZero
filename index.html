@@ -1,3 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>YZE Table V2</title>
+
+<style>
+/* keep your camouflage CSS */
+</style>
+</head>
+
+<body>
+
+<div id="roleBanner"></div>
+
+<h2>YZE Actor Table</h2>
+
+<select id="actorSelect"></select>
+<input id="newName" placeholder="NPC name (optional)">
+<input id="basic" type="number" value="5" min="0">
+
+<button onclick="roll()">Roll</button>
+<button onclick="shuffle()">Shuffle</button>
+<button onclick="nextTurn()">Next</button>
+<button onclick="critical()">Critical</button>
+
+<hr>
+
+<h3>Actors</h3>
+<div id="actors"></div>
+
+<h3>History</h3>
+<div id="history"></div>
+  
 <script defer>
 
 const urlParams = new URLSearchParams(window.location.search);
@@ -163,3 +197,8 @@ function renderHistory() {
 connect();
 
 </script>
+
+  </script>
+
+</body>
+</html>
