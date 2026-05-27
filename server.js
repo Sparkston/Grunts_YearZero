@@ -1,6 +1,5 @@
 const WebSocket = require("ws");
 const fs = require("fs");
-const path = require("path");
 
 const panicTable = require("./panicTable");
 const criticalTable = require("./criticalTable");
@@ -11,9 +10,9 @@ const wss = new WebSocket.Server({ port: PORT });
 
 console.log(`YZE server running on port ${PORT}`);
 
-/* ---------------- PC STATE (PERSISTENT) ---------------- */
+/* ---------------- PERSISTENCE ---------------- */
 
-const pcStatePath = path.join(__dirname, "pcState.json");
+const pcStatePath = "./pcState.json";
 
 function loadPCState() {
   try {
@@ -23,49 +22,64 @@ function loadPCState() {
   }
 }
 
-function savePCState() {
-  fs.writeFileSync(pcStatePath, JSON.stringify(pcState, null, 2));
+function savePCState(state) {
+  fs.writeFileSync(pcStatePath, JSON.stringify(state, null, 2));
 }
+
+/* ---------------- STATE ---------------- */
 
 let pcState = loadPCState();
 
-// ensure defaults
-for (const id of Object.keys(pcDefs)) {
-  if (!pcState[id]) {
-    pcState[id] = {
-      stress: 0,
-      health: 5,
-      starving: false,
-      dehydrated: false,
-      exhausted: false,
-      freezing: false,
-      criticalInjuries: []
+/**
+ * Build actors from:
+ * - static definitions (pcDefs)
+ * - persistent state (pcState)
+ */
+function buildActors() {
+  const actors = {};
+
+  for (const [id, def] of Object.entries(pcDefs)) {
+    actors[id] = {
+      type: "pc",
+      name: def.name,
+      callsign: def.callsign,
+
+      stress: pcState[id]?.stress ?? 0,
+      health: pcState[id]?.health ?? 5,
+
+      conditions: pcState[id]?.conditions ?? {
+        starving: false,
+        dehydrated: false,
+        exhausted: false,
+        freezing: false
+      },
+
+      criticalInjuries: pcState[id]?.criticalInjuries ?? []
     };
   }
+
+  return actors;
 }
 
-/* ---------------- SESSION STATE (NPC ONLY) ---------------- */
-
-const gameState = {
-  actors: {},   // NPC ONLY
-  turnOrder: [],
+let gameState = {
+  actors: buildActors(),
+  turnOrder: Object.keys(pcDefs),
   currentTurnIndex: 0,
   history: []
 };
 
-/* ---------------- CLIENTS ---------------- */
+/* ---------------- CLIENT ROLES ---------------- */
 
-const clients = new Map(); // ws -> { role, pc }
+const clients = new Map();
 
-function getClient(ws) {
-  return clients.get(ws) || { role: "player", pc: null };
+function getRole(ws) {
+  return clients.get(ws)?.role || "player";
 }
 
 /* ---------------- UTIL ---------------- */
 
 function rollDice(n) {
-  return Array.from(
-    { length: Math.max(0, Number(n) || 0) },
+  return Array.from({ length: Math.max(0, Number(n) || 0) },
     () => Math.floor(Math.random() * 6) + 1
   );
 }
@@ -74,14 +88,12 @@ function count(arr, v) {
   return arr.filter(x => x === v).length;
 }
 
-/* ---------------- BROADCAST (SINGLE SOURCE OF TRUTH) ---------------- */
+/* ---------------- SNAPSHOT BROADCAST ---------------- */
 
 function broadcastState() {
   const msg = JSON.stringify({
     type: "state",
-    state: gameState,
-    pcs: pcState,
-    pcDefs
+    state: gameState
   });
 
   for (const c of wss.clients) {
@@ -94,14 +106,35 @@ function broadcastState() {
 /* ---------------- HISTORY ---------------- */
 
 function pushHistory(entry) {
-  if (!entry || !entry.name) return;
+  if (!entry?.name) return;
 
   gameState.history.push(entry);
+
   if (gameState.history.length > 200) {
     gameState.history = gameState.history.slice(-200);
   }
 
   broadcastState();
+}
+
+/* ---------------- PERSIST PC STATE ---------------- */
+
+function persistPCState() {
+  const out = {};
+
+  for (const [id, a] of Object.entries(gameState.actors)) {
+    if (a.type === "pc") {
+      out[id] = {
+        stress: a.stress,
+        health: a.health,
+        conditions: a.conditions,
+        criticalInjuries: a.criticalInjuries
+      };
+    }
+  }
+
+  pcState = out;
+  savePCState(out);
 }
 
 /* ---------------- PANIC ---------------- */
@@ -153,7 +186,7 @@ function performCritical() {
   });
 }
 
-/* ---------------- ROLLS ---------------- */
+/* ---------------- ROLL ---------------- */
 
 function performRoll({ name, basic = 0, noStress = false }) {
   const actor = gameState.actors[name];
@@ -161,7 +194,7 @@ function performRoll({ name, basic = 0, noStress = false }) {
   const basicDice = rollDice(basic);
 
   const stressDice =
-    actor && !noStress
+    actor?.type === "pc" && !noStress
       ? rollDice(actor.stress)
       : [];
 
@@ -169,28 +202,32 @@ function performRoll({ name, basic = 0, noStress = false }) {
     name,
     basic: basicDice,
     stress: stressDice,
-    successes: count(basicDice, 6) + count(stressDice, 6),
+    successes: count([...basicDice, ...stressDice], 6),
     banes: count(stressDice, 1),
     time: new Date().toLocaleTimeString()
   });
 }
 
-/* ---------------- NPCS ---------------- */
+/* ---------------- NPCS (ephemeral only) ---------------- */
 
 function createActor(name) {
-  let finalName = (name || "").trim() || `Actor ${Math.floor(Math.random() * 10000)}`;
-  if (gameState.actors[finalName]) finalName += ` ${Date.now()}`;
+  const finalName =
+    (name || "").trim() || `NPC ${Math.floor(Math.random() * 10000)}`;
 
-  gameState.actors[finalName] = { type: "npc", stress: 0 };
+  gameState.actors[finalName] = {
+    type: "npc",
+    stress: 0
+  };
+
   gameState.turnOrder.push(finalName);
-
   broadcastState();
 }
 
 function removeActor(name) {
   if (!gameState.actors[name]) return;
-  delete gameState.actors[name];
+  if (gameState.actors[name].type === "pc") return;
 
+  delete gameState.actors[name];
   gameState.turnOrder = gameState.turnOrder.filter(n => n !== name);
 
   broadcastState();
@@ -206,20 +243,18 @@ function shuffleInitiative() {
 
 function nextTurn() {
   gameState.currentTurnIndex =
-    (gameState.currentTurnIndex + 1) % Math.max(1, gameState.turnOrder.length);
+    (gameState.currentTurnIndex + 1) % gameState.turnOrder.length;
 
   broadcastState();
 }
 
-/* ---------------- HANDLER ---------------- */
+/* ---------------- MESSAGE HANDLER ---------------- */
 
 function handle(ws, msg) {
-  const client = getClient(ws);
-
   switch (msg.type) {
 
     case "setRole":
-      clients.set(ws, { role: msg.role || "player", pc: msg.pc || null });
+      clients.set(ws, { role: msg.role || "player" });
       break;
 
     case "roll":
@@ -253,18 +288,16 @@ function handle(ws, msg) {
       removeActor(msg.name);
       break;
 
-    case "setStress": {
-      if (client.role !== "gm") return;
+    case "setStress":
+      if (getRole(ws) !== "gm") return;
 
-      const pc = pcState[msg.name];
-      if (!pc) return;
+      const a = gameState.actors[msg.name];
+      if (!a) return;
 
-      pc.stress = Math.max(0, Number(msg.stress) || 0);
-
-      savePCState();
+      a.stress = Math.max(0, msg.stress);
+      persistPCState();
       broadcastState();
       break;
-    }
 
     case "shuffleInitiative":
       shuffleInitiative();
@@ -279,13 +312,11 @@ function handle(ws, msg) {
 /* ---------------- CONNECTIONS ---------------- */
 
 wss.on("connection", ws => {
-  clients.set(ws, { role: "player", pc: null });
+  clients.set(ws, { role: "player" });
 
   ws.send(JSON.stringify({
     type: "state",
-    state: gameState,
-    pcs: pcState,
-    pcDefs
+    state: gameState
   }));
 
   ws.on("message", raw => {
