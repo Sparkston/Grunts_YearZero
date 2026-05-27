@@ -1,0 +1,60 @@
+{
+  "PC1": {
+    "health": 4,
+    "maxHealth": 5,
+
+    "stress": 2,
+
+    "starving": false,
+    "dehydrated": false,
+    "exhausted": true,
+    "freezing": false,
+
+    "criticalInjuries": []
+  }
+}
+{
+  "PC2": {
+    "health": 4,
+    "maxHealth": 5,
+
+    "stress": 2,
+
+    "starving": false,
+    "dehydrated": false,
+    "exhausted": true,
+    "freezing": false,
+
+    "criticalInjuries": []
+  }
+}
+{
+  "PC3": {
+    "health": 4,
+    "maxHealth": 5,
+
+    "stress": 2,
+
+    "starving": false,
+    "dehydrated": false,
+    "exhausted": true,
+    "freezing": false,
+
+    "criticalInjuries": []
+  }
+}
+{
+  "PC4": {
+    "health": 4,
+    "maxHealth": 5,
+
+    "stress": 2,
+
+    "starving": false,
+    "dehydrated": false,
+    "exhausted": true,
+    "freezing": false,
+
+    "criticalInjuries": []
+  }
+}
