@@ -6,6 +6,55 @@
 
 <style>
 body {
+  font-family: system-ui;
+  max-width: 1000px;
+  margin: 20px auto;
+  padding: 20px;
+
+  background:
+    radial-gradient(circle at 12% 18%, rgba(60, 80, 40, 0.95) 0 18%, transparent 19%),
+    radial-gradient(circle at 35% 65%, rgba(90, 110, 60, 0.9) 0 22%, transparent 23%),
+    radial-gradient(circle at 70% 25%, rgba(40, 60, 30, 0.95) 0 20%, transparent 21%),
+    radial-gradient(circle at 85% 75%, rgba(100, 120, 70, 0.85) 0 18%, transparent 19%),
+    #2f3b22;
+}
+
+.player {
+  background: rgba(255,255,255,0.85);
+  border: 1px solid rgba(0,0,0,0.4);
+  padding: 8px;
+  margin-bottom: 6px;
+  border-radius: 6px;
+}
+
+.active {
+  border: 2px solid green;
+  background: rgba(220,255,220,0.9);
+}
+
+#roleBanner {
+  margin-bottom: 10px;
+  padding: 6px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  font-weight: bold;
+}
+
+button { margin-left: 4px; }
+
+/* ✅ ADD THIS TABLE STYLING BELOW */
+
+table th, table td {
+  padding: 6px;
+  border-bottom: 1px solid rgba(0,0,0,0.1);
+  vertical-align: top;
+}
+
+table {
+  border-radius: 6px;
+  overflow: hidden;
+}
+</style>
 
 </head>
 
