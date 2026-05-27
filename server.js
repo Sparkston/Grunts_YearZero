@@ -256,7 +256,16 @@ function handle(ws, msg) {
     case "setRole":
       clients.set(ws, { role: msg.role || "player" });
       break;
-
+      
+  case "setHealth":
+    if (getRole(ws) !== "gm") return;
+  
+    if (gameState.actors[msg.name]) {
+      gameState.actors[msg.name].health = Math.max(0, msg.health);
+      broadcastState();
+    }
+    break;
+      
     case "roll":
       performRoll({
         name: msg.name,
