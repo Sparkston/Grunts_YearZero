@@ -26,20 +26,20 @@ function savePCState(state) {
   fs.writeFileSync(pcStatePath, JSON.stringify(state, null, 2));
 }
 
-/* ---------------- STATE ---------------- */
-
 let pcState = loadPCState();
 
-/**
- * Build actors from:
- * - static definitions (pcDefs)
- * - persistent state (pcState)
- */
-function buildActors() {
+/* ---------------- NPC STATE (ephemeral) ---------------- */
+
+let npcState = {}; // runtime only
+
+/* ---------------- PC BUILD ---------------- */
+
+function buildPCActors() {
   const actors = {};
 
   for (const [id, def] of Object.entries(pcDefs)) {
     actors[id] = {
+      id,
       type: "pc",
       name: def.name,
       callsign: def.callsign,
@@ -61,6 +61,15 @@ function buildActors() {
   return actors;
 }
 
+/* ---------------- ACTORS SNAPSHOT (PC + NPC) ---------------- */
+
+function buildActors() {
+  const pcs = buildPCActors();
+  return { ...pcs, ...npcState };
+}
+
+/* ---------------- GAME STATE ---------------- */
+
 let gameState = {
   actors: buildActors(),
   turnOrder: Object.keys(pcDefs),
@@ -68,10 +77,9 @@ let gameState = {
   history: []
 };
 
-/* ---------------- CLIENT ROLES ---------------- */
+/* ---------------- CLIENTS ---------------- */
 
 const clients = new Map();
-
 function getRole(ws) {
   return clients.get(ws)?.role || "player";
 }
@@ -79,7 +87,8 @@ function getRole(ws) {
 /* ---------------- UTIL ---------------- */
 
 function rollDice(n) {
-  return Array.from({ length: Math.max(0, Number(n) || 0) },
+  return Array.from(
+    { length: Math.max(0, Number(n) || 0) },
     () => Math.floor(Math.random() * 6) + 1
   );
 }
@@ -88,10 +97,14 @@ function count(arr, v) {
   return arr.filter(x => x === v).length;
 }
 
-/* ---------------- SNAPSHOT BROADCAST ---------------- */
+/* ---------------- SNAPSHOT ---------------- */
+
+function rebuildState() {
+  gameState.actors = buildActors();
+}
 
 function broadcastState() {
-  gameState.actors = buildActors(); // 🔥 CRITICAL FIX
+  rebuildState();
 
   const msg = JSON.stringify({
     type: "state",
@@ -104,6 +117,7 @@ function broadcastState() {
     }
   }
 }
+
 /* ---------------- HISTORY ---------------- */
 
 function pushHistory(entry) {
@@ -152,16 +166,14 @@ function performPanic(name) {
   if (!actor) return;
 
   const d6 = Math.floor(Math.random() * 6) + 1;
-  const stress = actor.stress || 0;
-
-  const total = d6 + stress;
+  const total = d6 + (actor.stress || 0);
 
   pushHistory({
     type: "panic",
-    name: `${name} Panic Test`,
+    name: `${actor.name ?? name} Panic Test`,
     time: new Date().toLocaleTimeString(),
     dice: [d6],
-    stress,
+    stress: actor.stress,
     total,
     resultText: resolvePanic(total)
   });
@@ -200,7 +212,8 @@ function performRoll({ name, basic = 0, noStress = false }) {
       : [];
 
   pushHistory({
-    name,
+    name: actor?.name ?? name,
+    actorId: name,
     basic: basicDice,
     stress: stressDice,
     successes: count([...basicDice, ...stressDice], 6),
@@ -209,27 +222,28 @@ function performRoll({ name, basic = 0, noStress = false }) {
   });
 }
 
-/* ---------------- NPCS (ephemeral only) ---------------- */
+/* ---------------- NPCS ---------------- */
 
 function createActor(name) {
-  const finalName =
-    (name || "").trim() || `NPC ${Math.floor(Math.random() * 10000)}`;
+  const id = `npc_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
-  gameState.actors[finalName] = {
+  npcState[id] = {
+    id,
     type: "npc",
-    stress: 0
+    name: name || `NPC ${id}`,
+    stress: 0,
+    health: 5
   };
 
-  gameState.turnOrder.push(finalName);
   broadcastState();
 }
 
-function removeActor(name) {
-  if (!gameState.actors[name]) return;
-  if (gameState.actors[name].type === "pc") return;
+function removeActor(id) {
+  if (!npcState[id]) return;
 
-  delete gameState.actors[name];
-  gameState.turnOrder = gameState.turnOrder.filter(n => n !== name);
+  delete npcState[id];
+
+  gameState.turnOrder = gameState.turnOrder.filter(n => n !== id);
 
   broadcastState();
 }
@@ -243,6 +257,8 @@ function shuffleInitiative() {
 }
 
 function nextTurn() {
+  if (gameState.turnOrder.length === 0) return;
+
   gameState.currentTurnIndex =
     (gameState.currentTurnIndex + 1) % gameState.turnOrder.length;
 
@@ -257,16 +273,31 @@ function handle(ws, msg) {
     case "setRole":
       clients.set(ws, { role: msg.role || "player" });
       break;
-      
-  case "setHealth":
-    if (getRole(ws) !== "gm") return;
-  
-    if (gameState.actors[msg.name]) {
-      gameState.actors[msg.name].health = Math.max(0, msg.health);
+
+    case "setStress": {
+      if (getRole(ws) !== "gm") return;
+
+      const a = gameState.actors[msg.name];
+      if (!a) return;
+
+      a.stress = Math.max(0, msg.stress);
+      persistPCState();
       broadcastState();
+      break;
     }
-    break;
-      
+
+    case "setHealth": {
+      if (getRole(ws) !== "gm") return;
+
+      const a = gameState.actors[msg.name];
+      if (!a) return;
+
+      a.health = Math.max(0, msg.health);
+      persistPCState();
+      broadcastState();
+      break;
+    }
+
     case "roll":
       performRoll({
         name: msg.name,
@@ -296,17 +327,6 @@ function handle(ws, msg) {
 
     case "removeActor":
       removeActor(msg.name);
-      break;
-
-    case "setStress":
-      if (getRole(ws) !== "gm") return;
-
-      const a = gameState.actors[msg.name];
-      if (!a) return;
-
-      a.stress = Math.max(0, msg.stress);
-      persistPCState();
-      broadcastState();
       break;
 
     case "shuffleInitiative":
