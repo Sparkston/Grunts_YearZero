@@ -25,13 +25,13 @@ function connect() {
     renderRole();
   };
 
-  ws.onmessage = (e) => {
+    ws.onmessage = (e) => {
+    console.log("WS MESSAGE:", e.data);
+  
     const msg = JSON.parse(e.data);
-
+  
     if (msg.type === "state") {
       state = msg.state;
-      pcs = msg.pcs || {};
-      pcDefs = msg.pcDefs || {};
       renderAll();
     }
   };
