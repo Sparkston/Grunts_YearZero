@@ -91,6 +91,8 @@ function count(arr, v) {
 /* ---------------- SNAPSHOT BROADCAST ---------------- */
 
 function broadcastState() {
+  gameState.actors = buildActors(); // 🔥 CRITICAL FIX
+
   const msg = JSON.stringify({
     type: "state",
     state: gameState
@@ -102,7 +104,6 @@ function broadcastState() {
     }
   }
 }
-
 /* ---------------- HISTORY ---------------- */
 
 function pushHistory(entry) {
