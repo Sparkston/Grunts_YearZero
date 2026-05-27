@@ -153,6 +153,16 @@ function setStress(name, delta) {
   });
 }
 
+  function setHealth(id, delta) {
+  const current = state.actors[id]?.health ?? 0;
+
+  send({
+    type: "setHealth",
+    name: id,
+    health: current + delta
+  });
+}
+  
 function removeActor(name) {
   send({ type: "removeActor", name });
 }
@@ -200,42 +210,26 @@ function renderSelect() {
 
 /* ---------------- ACTORS ---------------- */
 
-function renderActors() {
-  const div = document.getElementById("actors");
-  div.innerHTML = "";
+function roll() {
+  const sel = document.getElementById("actorSelect").value;
+  const basic = Number(document.getElementById("basic").value) || 0;
 
-  const order = state?.turnOrder || [];
+  if (sel === "__new_npc__") {
+    const name = prompt("NPC name?");
+    if (!name) return;
 
-  order.forEach((id, i) => {
-    const a = state.actors[id];
-    if (!a) return;
+    send({ type: "createActor", name });
+    send({ type: "roll", name, basic });
+    return;
+  }
 
-    const el = document.createElement("div");
-    el.className = "player" + (i === state.currentTurnIndex ? " active" : "");
+  if (sel === "__ad_hoc__") {
+    send({ type: "adHocRoll", basic });
+    return;
+  }
 
-    el.innerHTML = `
-      <b>${a.name ?? id}</b>
-      
-      Stress: ${a.stress ?? 0}
-      Health: ${a.health ?? ""}
-
-      <button onclick="panic('${id}')">Panic</button>
-
-      ${isGM ? `
-        <button onclick="setStress('${id}', 1)">+</button>
-        <button onclick="setStress('${id}', -1)">-</button>
-      ` : ""}
-
-      ${isGM && a.type === "npc"
-        ? `<button onclick="removeActor('${id}')">Remove</button>`
-        : ""
-      }
-    `;
-
-    div.appendChild(el);
-  });
+  send({ type: "roll", name: sel, basic });
 }
-
 /* ---------------- HISTORY ---------------- */
 
 function renderHistory() {
