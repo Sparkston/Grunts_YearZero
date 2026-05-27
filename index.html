@@ -126,6 +126,7 @@ function roll() {
 
   send({ type: "roll", name: sel, basic });
 }
+
 function panic(name) {
   send({ type: "panic", name });
 }
@@ -149,12 +150,12 @@ function setStress(name, delta) {
   send({
     type: "setStress",
     name,
-    stress: actor.stress + delta
+    stress: (actor.stress ?? 0) + delta
   });
 }
 
-  function setHealth(id, delta) {
-  const current = state.actors[id]?.health ?? 0;
+function setHealth(id, delta) {
+  const current = state?.actors?.[id]?.health ?? 0;
 
   send({
     type: "setHealth",
@@ -162,12 +163,12 @@ function setStress(name, delta) {
     health: current + delta
   });
 }
-  
+
 function removeActor(name) {
   send({ type: "removeActor", name });
 }
 
-/* ---------------- RENDER ---------------- */
+/* ---------------- RENDER ROLE ---------------- */
 
 function renderRole() {
   document.getElementById("roleBanner").innerText =
@@ -208,28 +209,58 @@ function renderSelect() {
   sel.appendChild(optRoll);
 }
 
-/* ---------------- ACTORS ---------------- */
+/* ---------------- ACTORS (FIXED) ---------------- */
 
-function roll() {
-  const sel = document.getElementById("actorSelect").value;
-  const basic = Number(document.getElementById("basic").value) || 0;
+function renderActors() {
+  const div = document.getElementById("actors");
+  div.innerHTML = "";
 
-  if (sel === "__new_npc__") {
-    const name = prompt("NPC name?");
-    if (!name) return;
+  if (!state?.actors) return;
 
-    send({ type: "createActor", name });
-    send({ type: "roll", name, basic });
-    return;
-  }
+  const order = state.turnOrder || Object.keys(state.actors);
 
-  if (sel === "__ad_hoc__") {
-    send({ type: "adHocRoll", basic });
-    return;
-  }
+  order.forEach((id) => {
+    const a = state.actors[id];
+    if (!a) return;
 
-  send({ type: "roll", name: sel, basic });
+    const el = document.createElement("div");
+    el.className = "player";
+
+    el.innerHTML = `
+      <b>${a.name ?? id}</b><br>
+
+      Stress: ${a.stress ?? 0}
+      ${isGM ? `
+        <button onclick="setStress('${id}', 1)">+</button>
+        <button onclick="setStress('${id}', -1)">-</button>
+      ` : ""}
+
+      <br>
+
+      Health: ${a.health ?? 0}
+      ${isGM ? `
+        <button onclick="setHealth('${id}', 1)">+</button>
+        <button onclick="setHealth('${id}', -1)">-</button>
+      ` : ""}
+
+      <br>
+
+      Critical: ${(a.criticalInjuries || []).length}
+
+      <br>
+
+      <button onclick="panic('${id}')">Panic</button>
+
+      ${a.type === "npc"
+        ? `<button onclick="removeActor('${id}')">Remove</button>`
+        : ""
+      }
+    `;
+
+    div.appendChild(el);
+  });
 }
+
 /* ---------------- HISTORY ---------------- */
 
 function renderHistory() {
@@ -241,7 +272,7 @@ function renderHistory() {
     .reverse()
     .map(r => `
       <div class="player">
-        <b>${state?.actors?.[r.actorId]?.name ?? r.name}</b> (${r.time || ""})<br>
+        <b>${state?.actors?.[r.name]?.name ?? r.name}</b> (${r.time || ""})<br>
 
         ${r.basic ? `Basic: ${r.basic.join(" ")}<br>` : ""}
         ${r.stress ? `Stress: ${r.stress.join(" ")}<br>` : ""}
