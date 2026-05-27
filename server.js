@@ -1,37 +1,67 @@
 const WebSocket = require("ws");
+const fs = require("fs");
+const path = require("path");
+
 const panicTable = require("./panicTable");
 const criticalTable = require("./criticalTable");
+const pcDefs = require("./playerCharacters");
 
 const PORT = process.env.PORT || 8080;
 const wss = new WebSocket.Server({ port: PORT });
 
 console.log(`YZE server running on port ${PORT}`);
 
-/* ---------------- STATE ---------------- */
+/* ---------------- PC STATE (PERSISTENT) ---------------- */
+
+const pcStatePath = path.join(__dirname, "pcState.json");
+
+function loadPCState() {
+  try {
+    return JSON.parse(fs.readFileSync(pcStatePath, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+function savePCState() {
+  fs.writeFileSync(pcStatePath, JSON.stringify(pcState, null, 2));
+}
+
+let pcState = loadPCState();
+
+// ensure defaults
+for (const id of Object.keys(pcDefs)) {
+  if (!pcState[id]) {
+    pcState[id] = {
+      stress: 0,
+      health: 5,
+      starving: false,
+      dehydrated: false,
+      exhausted: false,
+      freezing: false,
+      criticalInjuries: []
+    };
+  }
+}
+
+/* ---------------- SESSION STATE (NPC ONLY) ---------------- */
 
 const gameState = {
-  actors: {
-    Grunt1: { type: "pc", stress: 0 },
-    Grunt2: { type: "pc", stress: 0 },
-    Grunt3: { type: "pc", stress: 0 },
-    Grunt4: { type: "pc", stress: 0 }
-  },
-
-  turnOrder: ["Grunt1", "Grunt2", "Grunt3", "Grunt4"],
+  actors: {},   // NPC ONLY
+  turnOrder: [],
   currentTurnIndex: 0,
-
   history: []
 };
 
-/* ---------------- CLIENT ROLES ---------------- */
+/* ---------------- CLIENTS ---------------- */
 
-const clients = new Map(); // ws -> { role }
+const clients = new Map(); // ws -> { role, pc }
 
-function getRole(ws) {
-  return clients.get(ws)?.role || "player";
+function getClient(ws) {
+  return clients.get(ws) || { role: "player", pc: null };
 }
 
-/* ---------------- CORE UTIL ---------------- */
+/* ---------------- UTIL ---------------- */
 
 function rollDice(n) {
   return Array.from(
@@ -44,10 +74,14 @@ function count(arr, v) {
   return arr.filter(x => x === v).length;
 }
 
+/* ---------------- BROADCAST (SINGLE SOURCE OF TRUTH) ---------------- */
+
 function broadcastState() {
   const msg = JSON.stringify({
     type: "state",
-    state: gameState
+    state: gameState,
+    pcs: pcState,
+    pcDefs
   });
 
   for (const c of wss.clients) {
@@ -57,12 +91,12 @@ function broadcastState() {
   }
 }
 
-/* ---------------- HISTORY (CRITICAL FIX) ---------------- */
+/* ---------------- HISTORY ---------------- */
+
 function pushHistory(entry) {
   if (!entry || !entry.name) return;
 
   gameState.history.push(entry);
-
   if (gameState.history.length > 200) {
     gameState.history = gameState.history.slice(-200);
   }
@@ -74,9 +108,7 @@ function pushHistory(entry) {
 
 function resolvePanic(total) {
   for (const row of panicTable) {
-    if (total >= row.min && total <= row.max) {
-      return row.text;
-    }
+    if (total >= row.min && total <= row.max) return row.text;
   }
   return "No effect.";
 }
@@ -89,16 +121,13 @@ function performPanic(name) {
   const stress = actor.stress || 0;
 
   const total = d6 + stress;
-  const resultText = resolvePanic(total);
 
   pushHistory({
     type: "panic",
     name: `${name} Panic Test`,
     time: new Date().toLocaleTimeString(),
-  
     dice: [d6],
-    stress: stress,
-  
+    stress,
     total,
     resultText: resolvePanic(total)
   });
@@ -124,7 +153,7 @@ function performCritical() {
   });
 }
 
-/* ---------------- ROLL (FIXED INPUT NORMALISATION) ---------------- */
+/* ---------------- ROLLS ---------------- */
 
 function performRoll({ name, basic = 0, noStress = false }) {
   const actor = gameState.actors[name];
@@ -132,23 +161,21 @@ function performRoll({ name, basic = 0, noStress = false }) {
   const basicDice = rollDice(basic);
 
   const stressDice =
-    actor && actor.type === "pc" && !noStress
+    actor && !noStress
       ? rollDice(actor.stress)
       : [];
 
-  const entry = {
+  pushHistory({
     name,
     basic: basicDice,
     stress: stressDice,
     successes: count(basicDice, 6) + count(stressDice, 6),
     banes: count(stressDice, 1),
     time: new Date().toLocaleTimeString()
-  };
-
-  pushHistory(entry);
+  });
 }
 
-/* ---------------- ACTORS ---------------- */
+/* ---------------- NPCS ---------------- */
 
 function createActor(name) {
   let finalName = (name || "").trim() || `Actor ${Math.floor(Math.random() * 10000)}`;
@@ -162,9 +189,8 @@ function createActor(name) {
 
 function removeActor(name) {
   if (!gameState.actors[name]) return;
-  if (gameState.actors[name].type === "pc") return;
-
   delete gameState.actors[name];
+
   gameState.turnOrder = gameState.turnOrder.filter(n => n !== name);
 
   broadcastState();
@@ -179,32 +205,29 @@ function shuffleInitiative() {
 }
 
 function nextTurn() {
-  gameState.currentTurnIndex++;
-  if (gameState.currentTurnIndex >= gameState.turnOrder.length) {
-    gameState.currentTurnIndex = 0;
-  }
+  gameState.currentTurnIndex =
+    (gameState.currentTurnIndex + 1) % Math.max(1, gameState.turnOrder.length);
+
   broadcastState();
 }
 
-/* ---------------- MESSAGE HANDLER ---------------- */
+/* ---------------- HANDLER ---------------- */
 
 function handle(ws, msg) {
+  const client = getClient(ws);
+
   switch (msg.type) {
 
     case "setRole":
-      clients.set(ws, { role: msg.role || "player" });
+      clients.set(ws, { role: msg.role || "player", pc: msg.pc || null });
       break;
 
-    case "roll": {
-      const name = msg.name || msg.player;
-      if (!name) return;
-
+    case "roll":
       performRoll({
-        name,
+        name: msg.name,
         basic: Number(msg.basic) || 0
       });
       break;
-    }
 
     case "adHocRoll":
       performRoll({
@@ -230,14 +253,18 @@ function handle(ws, msg) {
       removeActor(msg.name);
       break;
 
-    case "setStress":
-      if (getRole(ws) !== "gm") return;
+    case "setStress": {
+      if (client.role !== "gm") return;
 
-      if (gameState.actors[msg.name]) {
-        gameState.actors[msg.name].stress = Math.max(0, msg.stress);
-        broadcastState();
-      }
+      const pc = pcState[msg.name];
+      if (!pc) return;
+
+      pc.stress = Math.max(0, Number(msg.stress) || 0);
+
+      savePCState();
+      broadcastState();
       break;
+    }
 
     case "shuffleInitiative":
       shuffleInitiative();
@@ -252,11 +279,13 @@ function handle(ws, msg) {
 /* ---------------- CONNECTIONS ---------------- */
 
 wss.on("connection", ws => {
-  clients.set(ws, { role: "player" });
+  clients.set(ws, { role: "player", pc: null });
 
   ws.send(JSON.stringify({
     type: "state",
-    state: gameState
+    state: gameState,
+    pcs: pcState,
+    pcDefs
   }));
 
   ws.on("message", raw => {
