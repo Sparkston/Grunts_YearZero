@@ -110,9 +110,22 @@ function roll() {
   const sel = document.getElementById("actorSelect").value;
   const basic = Number(document.getElementById("basic").value) || 0;
 
+  if (sel === "__new_npc__") {
+    const name = prompt("NPC name?");
+    if (!name) return;
+
+    send({ type: "createActor", name });
+    send({ type: "roll", name, basic });
+    return;
+  }
+
+  if (sel === "__ad_hoc__") {
+    send({ type: "adHocRoll", basic });
+    return;
+  }
+
   send({ type: "roll", name: sel, basic });
 }
-
 function panic(name) {
   send({ type: "panic", name });
 }
@@ -159,12 +172,30 @@ function renderSelect() {
 
   if (!state?.actors) return;
 
-  for (const name of Object.keys(state.actors)) {
+  for (const id of Object.keys(state.actors)) {
+    const a = state.actors[id];
+
     const opt = document.createElement("option");
-    opt.value = name;
-    opt.textContent = name;
+    opt.value = id;
+    opt.textContent = a.name ?? id;
+
     sel.appendChild(opt);
   }
+
+  const sep = document.createElement("option");
+  sep.disabled = true;
+  sep.textContent = "──────────";
+  sel.appendChild(sep);
+
+  const optNPC = document.createElement("option");
+  optNPC.value = "__new_npc__";
+  optNPC.textContent = "+ New NPC";
+  sel.appendChild(optNPC);
+
+  const optRoll = document.createElement("option");
+  optRoll.value = "__ad_hoc__";
+  optRoll.textContent = "+ Ad Hoc Roll";
+  sel.appendChild(optRoll);
 }
 
 /* ---------------- ACTORS ---------------- */
@@ -184,8 +215,7 @@ function renderActors() {
 
     el.innerHTML = `
       <b>${a.name ?? id}</b>
-      ${a.callsign ? `(${a.callsign})` : ""}<br>
-
+      
       Stress: ${a.stress ?? 0}
       Health: ${a.health ?? ""}
 
@@ -217,7 +247,7 @@ function renderHistory() {
     .reverse()
     .map(r => `
       <div class="player">
-        <b>${r.name}</b> (${r.time || ""})<br>
+        <b>${state?.actors?.[r.actorId]?.name ?? r.name}</b> (${r.time || ""})<br>
 
         ${r.basic ? `Basic: ${r.basic.join(" ")}<br>` : ""}
         ${r.stress ? `Stress: ${r.stress.join(" ")}<br>` : ""}
