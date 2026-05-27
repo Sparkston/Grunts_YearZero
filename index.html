@@ -175,27 +175,29 @@ function renderActors() {
 
   const order = state?.turnOrder || [];
 
-  order.forEach((name, i) => {
-    const a = state.actors[name];
+  order.forEach((id, i) => {
+    const a = state.actors[id];
     if (!a) return;
 
     const el = document.createElement("div");
     el.className = "player" + (i === state.currentTurnIndex ? " active" : "");
 
     el.innerHTML = `
-      <b>${name}</b> (${a.type})<br>
+      <b>${a.name ?? id}</b>
+      ${a.callsign ? `(${a.callsign})` : ""}<br>
+
       Stress: ${a.stress ?? 0}
       Health: ${a.health ?? ""}
 
-      <button onclick="panic('${name}')">Panic</button>
+      <button onclick="panic('${id}')">Panic</button>
 
       ${isGM ? `
-        <button onclick="setStress('${name}', 1)">+</button>
-        <button onclick="setStress('${name}', -1)">-</button>
+        <button onclick="setStress('${id}', 1)">+</button>
+        <button onclick="setStress('${id}', -1)">-</button>
       ` : ""}
 
       ${isGM && a.type === "npc"
-        ? `<button onclick="removeActor('${name}')">Remove</button>`
+        ? `<button onclick="removeActor('${id}')">Remove</button>`
         : ""
       }
     `;
