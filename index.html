@@ -56,6 +56,18 @@ table {
 }
 </style>
 
+.condition-on {
+  opacity: 1;
+  font-size: 1.2em;
+  margin-right: 4px;
+}
+
+.condition-off {
+  opacity: 0.2;
+  font-size: 1.2em;
+  margin-right: 4px;
+}
+  
 </head>
 
 <body>
@@ -157,6 +169,15 @@ function nextTurn() {
   send({ type: "nextTurn" });
 }
 
+function toggleCondition(name, condition, value) {
+  send({
+    type: "setCondition",
+    name,
+    condition,
+    value
+  });
+}
+  
 function setStress(name, delta) {
   const actor = state?.actors?.[name];
   if (!actor) return;
@@ -225,6 +246,41 @@ function renderSelect() {
 
 /* ---------------- ACTORS (FIXED) ---------------- */
 
+function renderCondition(id, key, symbol) {
+  const active =
+    state?.actors?.[id]?.conditions?.[key];
+
+  const cls = active
+    ? "condition-on"
+    : "condition-off";
+
+  if (!isGM) {
+    return `
+      <span
+        class="${cls}"
+        title="${key}"
+      >
+        ${symbol}
+      </span>
+    `;
+  }
+
+  return `
+    <span
+      class="${cls}"
+      title="${key}"
+      style="cursor:pointer"
+      onclick="toggleCondition(
+        '${id}',
+        '${key}',
+        ${!active}
+      )"
+    >
+      ${symbol}
+    </span>
+  `;
+}
+  
 function renderActors() {
   const div = document.getElementById("actors");
   div.innerHTML = "";
@@ -294,7 +350,14 @@ function renderActors() {
         ` : ""}
       </td>
 
-      <td>${conditions}</td>
+      <td>
+          ${a.type === "pc" ? `
+            ${renderCondition(id, "starving", "🍽️")}
+            ${renderCondition(id, "dehydrated", "💧")}
+            ${renderCondition(id, "exhausted", "😴")}
+            ${renderCondition(id, "freezing", "❄")}
+          ` : "—"}
+        </td>
 
       <td>${injuries}</td>
 
