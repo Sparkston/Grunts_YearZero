@@ -313,15 +313,22 @@ function handle(ws, msg) {
       break;
     }
 
-case "setCondition":
-  if (getRole(ws) !== "gm") return;
-
-    setCondition(
-      msg.name,
-      msg.condition,
-      msg.value
-    );
-    break;
+    case "setCondition": {
+      if (getRole(ws) !== "gm") return;
+    
+      const actor = gameState.actors[msg.name];
+      if (!actor || actor.type !== "pc") return;
+    
+      if (!actor.conditions) {
+        actor.conditions = {};
+      }
+    
+      actor.conditions[msg.condition] = !!msg.value;
+    
+      persistPCState();
+      broadcastState();
+      break;
+    }
       
     case "roll":
       performRoll({
