@@ -114,9 +114,9 @@ function count(arr, v) {
 
 /* ---------------- SNAPSHOT ---------------- */
 
-function rebuildState() {
-  gameState.actors = buildActors();
-}
+/*function rebuildState() {*/
+/*  gameState.actors = buildActors();*/
+/*}*/
 
 function broadcastState() {
   rebuildState();
