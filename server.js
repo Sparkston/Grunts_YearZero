@@ -119,7 +119,7 @@ function count(arr, v) {
 /*}*/
 
 function broadcastState() {
-  rebuildState();
+  console.log("BROADCAST");
 
   const msg = JSON.stringify({
     type: "state",
