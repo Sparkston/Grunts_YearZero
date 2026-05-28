@@ -42,8 +42,6 @@ body {
 
 button { margin-left: 4px; }
 
-/* ✅ ADD THIS TABLE STYLING BELOW */
-
 table th, table td {
   padding: 6px;
   border-bottom: 1px solid rgba(0,0,0,0.1);
@@ -54,7 +52,6 @@ table {
   border-radius: 6px;
   overflow: hidden;
 }
-</style>
 
 .condition-on {
   opacity: 1;
@@ -63,11 +60,11 @@ table {
 }
 
 .condition-off {
-  opacity: 0.2;
+  opacity: 0.25;
   font-size: 1.2em;
   margin-right: 4px;
 }
-  
+</style>
 </head>
 
 <body>
@@ -106,11 +103,7 @@ function connect() {
   ws = new WebSocket("wss://grunts-yearzero.onrender.com");
 
   ws.onopen = () => {
-    send({
-      type: "setRole",
-      role: isGM ? "gm" : "player"
-    });
-
+    send({ type: "setRole", role: isGM ? "gm" : "player" });
     renderRole();
   };
 
@@ -169,15 +162,6 @@ function nextTurn() {
   send({ type: "nextTurn" });
 }
 
-function toggleCondition(name, condition, value) {
-  send({
-    type: "setCondition",
-    name,
-    condition,
-    value
-  });
-}
-  
 function setStress(name, delta) {
   const actor = state?.actors?.[name];
   if (!actor) return;
@@ -190,17 +174,43 @@ function setStress(name, delta) {
 }
 
 function setHealth(name, delta) {
-  const current = state?.actors?.[name]?.health ?? 0;
+  const actor = state?.actors?.[name];
+  if (!actor) return;
 
   send({
     type: "setHealth",
     name,
-    health: current + delta
+    health: (actor.health ?? 0) + delta
   });
 }
 
 function removeActor(name) {
   send({ type: "removeActor", name });
+}
+
+/* ---------------- CONDITIONS (SAFE DOM VERSION) ---------------- */
+
+function renderCondition(id, key, symbol, cell) {
+  const active = state?.actors?.[id]?.conditions?.[key];
+
+  const span = document.createElement("span");
+  span.textContent = symbol;
+  span.className = active ? "condition-on" : "condition-off";
+  span.title = key;
+
+  if (isGM) {
+    span.style.cursor = "pointer";
+    span.onclick = () => {
+      send({
+        type: "setCondition",
+        name: id,
+        condition: key,
+        value: !active
+      });
+    };
+  }
+
+  cell.appendChild(span);
 }
 
 /* ---------------- RENDER ROLE ---------------- */
@@ -228,75 +238,18 @@ function renderSelect() {
     sel.appendChild(opt);
   }
 
-  const sep = document.createElement("option");
-  sep.disabled = true;
-  sep.textContent = "──────────";
-  sel.appendChild(sep);
+  sel.appendChild(new Option("──────────", "", true, true)).disabled = true;
 
-  const optNPC = document.createElement("option");
-  optNPC.value = "__new_npc__";
-  optNPC.textContent = "+ New NPC";
-  sel.appendChild(optNPC);
-
-  const optRoll = document.createElement("option");
-  optRoll.value = "__ad_hoc__";
-  optRoll.textContent = "+ Ad Hoc Roll";
-  sel.appendChild(optRoll);
+  sel.appendChild(new Option("+ New NPC", "__new_npc__"));
+  sel.appendChild(new Option("+ Ad Hoc Roll", "__ad_hoc__"));
 }
 
-/* ---------------- ACTORS (FIXED) ---------------- */
+/* ---------------- ACTORS TABLE ---------------- */
 
-function renderCondition(id, key, symbol) {
-  const active =
-    state?.actors?.[id]?.conditions?.[key];
-
-  const cls = active
-    ? "condition-on"
-    : "condition-off";
-
-  if (!isGM) {
-    return `
-      <span
-        class="${cls}"
-        title="${key}"
-      >
-        ${symbol}
-      </span>
-    `;
-  }
-
-  return `
-    <span
-      class="${cls}"
-      title="${key}"
-      style="cursor:pointer"
-      onclick="toggleCondition(
-        '${id}',
-        '${key}',
-        ${!active}
-      )"
-    >
-      ${symbol}
-    </span>
-  `;
-}
-
-function toggleCondition(name, condition, value) {
-  send({
-    type: "setCondition",
-    name,
-    condition,
-    value
-  });
-}
-  
 function renderActors() {
   const div = document.getElementById("actors");
   div.innerHTML = "";
 
-  const order = state?.turnOrder || [];
-
-  // table header
   const table = document.createElement("table");
   table.style.width = "100%";
   table.style.borderCollapse = "collapse";
@@ -318,57 +271,36 @@ function renderActors() {
 
   const tbody = table.querySelector("tbody");
 
+  const order = state?.turnOrder || [];
+
   order.forEach((id, i) => {
-    const a = state.actors?.[id];
+    const a = state?.actors?.[id];
     if (!a) return;
-
-    const isActive = i === state.currentTurnIndex;
-
-    const conditions = a.conditions
-      ? Object.entries(a.conditions)
-          .filter(([_, v]) => v)
-          .map(([k]) => k)
-          .join(", ")
-      : "";
-
-    const injuries = Array.isArray(a.criticalInjuries)
-      ? a.criticalInjuries.join(", ")
-      : "";
 
     const row = document.createElement("tr");
 
-    row.style.borderBottom = "1px solid #ccc";
-    if (isActive) row.style.background = "#dff5df";
+    if (i === state.currentTurnIndex) {
+      row.style.background = "#dff5df";
+    }
 
     row.innerHTML = `
       <td><b>${a.name || id}</b></td>
 
       <td align="center">
         ${a.stress ?? 0}
-        ${isGM ? `
-          <button onclick="setStress('${id}', 1)">+</button>
-          <button onclick="setStress('${id}', -1)">-</button>
-        ` : ""}
+        ${isGM ? `<button onclick="setStress('${id}',1)">+</button>
+                  <button onclick="setStress('${id}',-1)">-</button>` : ""}
       </td>
 
       <td align="center">
-        ${a.health ?? ""}
-        ${isGM ? `
-          <button onclick="setHealth('${id}', 1)">+</button>
-          <button onclick="setHealth('${id}', -1)">-</button>
-        ` : ""}
+        ${a.health ?? 0}
+        ${isGM ? `<button onclick="setHealth('${id}',1)">+</button>
+                  <button onclick="setHealth('${id}',-1)">-</button>` : ""}
       </td>
 
-      <td>
-          ${a.type === "pc" ? `
-            ${renderCondition(id, "starving", "🍽️")}
-            ${renderCondition(id, "dehydrated", "💧")}
-            ${renderCondition(id, "exhausted", "😴")}
-            ${renderCondition(id, "freezing", "❄")}
-          ` : "—"}
-        </td>
+      <td></td>
 
-      <td>${injuries}</td>
+      <td>${(a.criticalInjuries || []).join(", ")}</td>
 
       <td>
         <button onclick="panic('${id}')">Panic</button>
@@ -379,11 +311,24 @@ function renderActors() {
       </td>
     `;
 
+    const condCell = row.children[3];
+
+    if (a.type === "pc") {
+      renderCondition(id, "starving", "🍽️", condCell);
+      renderCondition(id, "dehydrated", "💧", condCell);
+      renderCondition(id, "exhausted", "😴", condCell);
+      renderCondition(id, "freezing", "❄", condCell);
+    } else {
+      condCell.textContent = "—";
+    }
+
     tbody.appendChild(row);
   });
 
+  table.querySelector("tbody").appendChild(tbody);
   div.appendChild(table);
 }
+
 /* ---------------- HISTORY ---------------- */
 
 function renderHistory() {
@@ -396,7 +341,6 @@ function renderHistory() {
     .map(r => `
       <div class="player">
         <b>${state?.actors?.[r.name]?.name ?? r.name}</b> (${r.time || ""})<br>
-
         ${r.basic ? `Basic: ${r.basic.join(" ")}<br>` : ""}
         ${r.stress ? `Stress: ${r.stress.join(" ")}<br>` : ""}
         ${typeof r.successes === "number" ? `Successes: ${r.successes}<br>` : ""}
@@ -406,7 +350,7 @@ function renderHistory() {
     `).join("");
 }
 
-/* ---------------- MASTER RENDER ---------------- */
+/* ---------------- MASTER ---------------- */
 
 function renderAll() {
   renderRole();
