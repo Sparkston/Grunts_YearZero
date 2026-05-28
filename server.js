@@ -26,6 +26,21 @@ function savePCState(state) {
   fs.writeFileSync(pcStatePath, JSON.stringify(state, null, 2));
 }
 
+function setCondition(actorId, condition, value) {
+  const actor = gameState.actors[actorId];
+
+  if (!actor || actor.type !== "pc") return;
+
+  if (!actor.conditions) {
+    actor.conditions = {};
+  }
+
+  actor.conditions[condition] = !!value;
+
+  persistPCState();
+  broadcastState();
+}
+
 let pcState = loadPCState();
 
 /* ---------------- NPC STATE (ephemeral) ---------------- */
@@ -298,6 +313,16 @@ function handle(ws, msg) {
       break;
     }
 
+case "setCondition":
+  if (getRole(ws) !== "gm") return;
+
+    setCondition(
+      msg.name,
+      msg.condition,
+      msg.value
+    );
+    break;
+      
     case "roll":
       performRoll({
         name: msg.name,
