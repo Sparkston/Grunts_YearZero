@@ -238,7 +238,9 @@ function renderSelect() {
     sel.appendChild(opt);
   }
 
-  sel.appendChild(new Option("──────────", "", true, true)).disabled = true;
+  const sep = new Option("──────────");
+  sep.disabled = true;
+  sel.appendChild(sep);
 
   sel.appendChild(new Option("+ New NPC", "__new_npc__"));
   sel.appendChild(new Option("+ Ad Hoc Roll", "__ad_hoc__"));
@@ -270,7 +272,6 @@ function renderActors() {
   `;
 
   const tbody = table.querySelector("tbody");
-
   const order = state?.turnOrder || [];
 
   order.forEach((id, i) => {
@@ -288,14 +289,18 @@ function renderActors() {
 
       <td align="center">
         ${a.stress ?? 0}
-        ${isGM ? `<button onclick="setStress('${id}',1)">+</button>
-                  <button onclick="setStress('${id}',-1)">-</button>` : ""}
+        ${isGM ? `
+          <button onclick="setStress('${id}',1)">+</button>
+          <button onclick="setStress('${id}',-1)">-</button>
+        ` : ""}
       </td>
 
       <td align="center">
         ${a.health ?? 0}
-        ${isGM ? `<button onclick="setHealth('${id}',1)">+</button>
-                  <button onclick="setHealth('${id}',-1)">-</button>` : ""}
+        ${isGM ? `
+          <button onclick="setHealth('${id}',1)">+</button>
+          <button onclick="setHealth('${id}',-1)">-</button>
+        ` : ""}
       </td>
 
       <td></td>
@@ -325,7 +330,7 @@ function renderActors() {
     tbody.appendChild(row);
   });
 
-  table.querySelector("tbody").appendChild(tbody);
+  table.appendChild(tbody);   // ✅ CORRECT
   div.appendChild(table);
 }
 
