@@ -280,6 +280,15 @@ function renderCondition(id, key, symbol) {
     </span>
   `;
 }
+
+function toggleCondition(name, condition, value) {
+  send({
+    type: "setCondition",
+    name,
+    condition,
+    value
+  });
+}
   
 function renderActors() {
   const div = document.getElementById("actors");
