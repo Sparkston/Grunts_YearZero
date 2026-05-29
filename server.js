@@ -254,6 +254,9 @@ function createActor(name) {
     health: 5
   };
 
+  // 🔥 IMPORTANT: add to initiative
+  gameState.turnOrder.push(id);
+
   broadcastState();
 }
 
