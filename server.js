@@ -119,7 +119,7 @@ function count(arr, v) {
 /*}*/
 
 function broadcastState() {
-  console.log("BROADCAST");
+  gameState.actors = buildActors(); // MUST happen here
 
   const msg = JSON.stringify({
     type: "state",
