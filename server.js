@@ -189,13 +189,14 @@ function performPanic(name) {
     actorId: name,
     name: actor.name ?? name,
 
-    roll: d6,
-    stress,          // scalar stress value used in calculation
+    roll: d6,        // ✔ explicit D6
+    stress,          // ✔ actor stress value
     total,
 
     resultText: resolvePanic(total),
     time: new Date().toLocaleTimeString()
   });
+}
 }
 /* ---------------- CRITICAL ---------------- */
 
