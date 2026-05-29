@@ -135,17 +135,21 @@ function broadcastState() {
 
 /* ---------------- HISTORY ---------------- */
 
-function pushHistory(entry) {
-  if (!entry?.name) return;
+pushHistory({
+  type: "roll",
+  actorId: name,
+  name: actor?.name ?? name,
 
-  gameState.history.push(entry);
+  basic: basicDice,
+  stress: stressDice,
 
-  if (gameState.history.length > 200) {
-    gameState.history = gameState.history.slice(-200);
-  }
+  stressLevel: actor?.stress ?? 0,
 
-  broadcastState();
-}
+  successes: count([...basicDice, ...stressDice], 6),
+  banes: count(stressDice, 1),
+
+  time: new Date().toLocaleTimeString()
+});
 
 /* ---------------- PERSIST PC STATE ---------------- */
 
@@ -181,16 +185,24 @@ function performPanic(name) {
   if (!actor) return;
 
   const d6 = Math.floor(Math.random() * 6) + 1;
-  const total = d6 + (actor.stress || 0);
+  const stress = actor.stress || 0;
+  const total = d6 + stress;
 
   pushHistory({
     type: "panic",
-    name: `${actor.name ?? name} Panic Test`,
-    time: new Date().toLocaleTimeString(),
-    dice: [d6],
-    stress: actor.stress,
+    actorId: name,
+    name: actor.name ?? name,
+
+    basic: [],
+    stress: [d6],          // IMPORTANT: ALWAYS ARRAY
+    stressLevel: stress,    // separate scalar field
+
+    successes: null,
+    banes: null,
+
     total,
-    resultText: resolvePanic(total)
+    resultText: resolvePanic(total),
+    time: new Date().toLocaleTimeString()
   });
 }
 
