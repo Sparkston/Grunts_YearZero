@@ -135,21 +135,17 @@ function broadcastState() {
 
 /* ---------------- HISTORY ---------------- */
 
-function pushHistory({
-  type: "roll",
-  actorId: name,
-  name: actor?.name ?? name,
+function pushHistory(entry) {
+  if (!entry?.name) return;
 
-  basic: basicDice,
-  stress: stressDice,
+  gameState.history.push(entry);
 
-  stressLevel: actor?.stress ?? 0,
+  if (gameState.history.length > 200) {
+    gameState.history = gameState.history.slice(-200);
+  }
 
-  successes: count([...basicDice, ...stressDice], 6),
-  banes: count(stressDice, 1),
-
-  time: new Date().toLocaleTimeString()
-});
+  broadcastState();
+}
 
 /* ---------------- PERSIST PC STATE ---------------- */
 
