@@ -197,7 +197,7 @@ function performPanic(name) {
     time: new Date().toLocaleTimeString()
   });
 }
-}
+
 /* ---------------- CRITICAL ---------------- */
 
 function rollD66() {
