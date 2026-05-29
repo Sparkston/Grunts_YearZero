@@ -135,7 +135,7 @@ function broadcastState() {
 
 /* ---------------- HISTORY ---------------- */
 
-pushHistory({
+function pushHistory({
   type: "roll",
   actorId: name,
   name: actor?.name ?? name,
