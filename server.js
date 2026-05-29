@@ -189,19 +189,14 @@ function performPanic(name) {
     actorId: name,
     name: actor.name ?? name,
 
-    basic: [],
-    stress: [d6],          // IMPORTANT: ALWAYS ARRAY
-    stressLevel: stress,    // separate scalar field
-
-    successes: null,
-    banes: null,
-
+    roll: d6,
+    stress,          // scalar stress value used in calculation
     total,
+
     resultText: resolvePanic(total),
     time: new Date().toLocaleTimeString()
   });
 }
-
 /* ---------------- CRITICAL ---------------- */
 
 function rollD66() {
