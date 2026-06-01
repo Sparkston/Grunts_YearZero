@@ -298,7 +298,7 @@ function renderActors() {
       </td>
 
       <td align="center">
-        ${a.health ?? 0}
+        ${isGM || a.type === "pc" ? (a.health ?? 0) : "—"}
         ${isGM ? `
           <button onclick="setHealth('${id}',1)">+</button>
           <button onclick="setHealth('${id}',-1)">-</button>
