@@ -38,6 +38,9 @@ function savePCState(state) {
 let pcState = loadPCState();
 let npcState = {};
 
+/**
+ * gameState.actors is the ONLY MUTABLE STATE
+ */
 let gameState = {
   actors: {},
   turnOrder: Object.keys(pcDefs),
@@ -58,7 +61,7 @@ function count(arr, v) {
   return arr.filter(x => x === v).length;
 }
 
-/* ---------------- ACTORS ---------------- */
+/* ---------------- ACTOR BUILD (VIEW ONLY) ---------------- */
 
 function buildPCActors() {
   const actors = {};
@@ -90,7 +93,8 @@ function buildPCActors() {
 function buildActors() {
   return {
     ...buildPCActors(),
-    ...npcState
+    ...npcState,
+    ...gameState.actors
   };
 }
 
@@ -128,22 +132,20 @@ function pushHistory(entry) {
   broadcastState();
 }
 
-/* ---------------- PERSIST ---------------- */
+/* ---------------- PERSISTENCE ---------------- */
 
 function persistPCState() {
   const out = {};
 
-  const actors = buildActors();
+  const pcs = buildPCActors();
 
-  for (const [id, a] of Object.entries(actors)) {
-    if (a.type === "pc") {
-      out[id] = {
-        stress: a.stress,
-        health: a.health,
-        conditions: a.conditions,
-        criticalInjuries: a.criticalInjuries
-      };
-    }
+  for (const [id, a] of Object.entries(pcs)) {
+    out[id] = {
+      stress: a.stress,
+      health: a.health,
+      conditions: a.conditions,
+      criticalInjuries: a.criticalInjuries
+    };
   }
 
   pcState = out;
@@ -169,7 +171,6 @@ function performPanic(name) {
 
   pushHistory({
     type: "panic",
-    name: actor.name ?? name,
     label: `${actor.name} 🎲 ${d6}+${stress}=${total} → ${resolvePanic(total)}`,
     time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   });
@@ -218,7 +219,6 @@ function performRoll({ name, basic = 0, noStress = false }) {
 
   pushHistory({
     type: "roll",
-    name: actor?.name ?? name,
     label,
     time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   });
@@ -238,14 +238,12 @@ function createActor(name) {
   };
 
   gameState.turnOrder.push(id);
-
   broadcastState();
 }
 
 function removeActor(id) {
   delete npcState[id];
   gameState.turnOrder = gameState.turnOrder.filter(n => n !== id);
-
   broadcastState();
 }
 
@@ -266,7 +264,7 @@ function nextTurn() {
   broadcastState();
 }
 
-/* ---------------- WS HANDLER ---------------- */
+/* ---------------- MESSAGE HANDLER ---------------- */
 
 function handle(ws, msg) {
   switch (msg.type) {
@@ -299,50 +297,44 @@ function handle(ws, msg) {
       nextTurn();
       break;
 
-      case "setStress": {
-  if (getRole(ws) !== "gm") return;
+    /* ---------------- GM MUTATIONS (FIXED) ---------------- */
 
-  const actors = buildActors();
-  const a = actors[msg.name];
-  if (!a) return;
+    case "setStress": {
+      const a = gameState.actors[msg.name];
+      if (!a) return;
 
-  const real = gameState.actors[msg.name];
-  if (!real) return;
+      a.stress = Math.max(0, msg.stress);
 
-  real.stress = Math.max(0, msg.stress);
-  persistPCState();
-  broadcastState();
-  break;
-}
+      if (a.type === "pc") persistPCState();
 
-  case "setHealth": {
-    if (getRole(ws) !== "gm") return;
-  
-    const real = gameState.actors[msg.name];
-    if (!real) return;
-  
-    real.health = Math.max(0, msg.health);
-    persistPCState();
-    broadcastState();
-    break;
-  }
-  
-  case "setCondition": {
-    if (getRole(ws) !== "gm") return;
-  
-    const real = gameState.actors[msg.name];
-    if (!real || real.type !== "pc") return;
-  
-    if (!real.conditions) real.conditions = {};
-  
-    real.conditions[msg.condition] = !!msg.value;
-  
-    persistPCState();
-    broadcastState();
-    break;
-  }
+      broadcastState();
+      break;
+    }
 
-      
+    case "setHealth": {
+      const a = gameState.actors[msg.name];
+      if (!a) return;
+
+      a.health = Math.max(0, msg.health);
+
+      if (a.type === "pc") persistPCState();
+
+      broadcastState();
+      break;
+    }
+
+    case "setCondition": {
+      const a = gameState.actors[msg.name];
+      if (!a || a.type !== "pc") return;
+
+      if (!a.conditions) a.conditions = {};
+
+      a.conditions[msg.condition] = !!msg.value;
+
+      persistPCState();
+      broadcastState();
+      break;
+    }
   }
 }
 
