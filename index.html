@@ -110,8 +110,9 @@ function connect() {
 
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-
+  
     if (msg.type === "state") {
+      console.log("STATE UPDATE:", msg.state.history);
       state = msg.state;
       renderAll();
     }
