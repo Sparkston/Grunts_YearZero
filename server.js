@@ -1,15 +1,22 @@
+const http = require("http");
 const WebSocket = require("ws");
-const fs = require("fs");
 
-const panicTable = require("./panicTable");
-const criticalTable = require("./criticalTable");
-const pcDefs = require("./playerCharacters");
+const server = http.createServer();
+const wss = new WebSocket.Server({ server });
 
 const PORT = process.env.PORT || 8080;
-const wss = new WebSocket.Server({ port: PORT });
 
-console.log(`YZE server running on port ${PORT}`);
+server.listen(PORT, () => {
+  console.log("🚀 Server listening on", PORT);
+});
 
+wss.on("connection", ws => {
+  console.log("🟢 CLIENT CONNECTED");
+
+  ws.on("message", raw => {
+    console.log("📩 RAW MESSAGE:", raw.toString());
+  });
+});
 /* ---------------- PERSISTENCE ---------------- */
 
 const pcStatePath = "./pcState.json";
