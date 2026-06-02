@@ -119,11 +119,14 @@ function count(arr, v) {
 /*}*/
 
 function broadcastState() {
-  gameState.actors = buildActors(); // MUST happen here
+  const snapshot = {
+    ...gameState,
+    actors: buildActors()
+  };
 
   const msg = JSON.stringify({
     type: "state",
-    state: gameState
+    state: snapshot
   });
 
   for (const c of wss.clients) {
