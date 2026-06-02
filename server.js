@@ -137,13 +137,17 @@ function broadcastState() {
 
 function pushHistory(entry) {
   if (!entry?.name) return;
-
+  
+  console.log("HISTORY ADD:", entry);
+  
   gameState.history.push(entry);
 
   if (gameState.history.length > 200) {
     gameState.history = gameState.history.slice(-200);
   }
 
+  console.log("HISTORY LENGTH:", gameState.history.length);
+  
   broadcastState();
 }
 
