@@ -33,10 +33,31 @@ function savePCState(state) {
   fs.writeFileSync(pcStatePath, JSON.stringify(state, null, 2));
 }
 
-/* ---------------- STATE (SOURCE OF TRUTH) ---------------- */
+/* ---------------- STATE ---------------- */
 
 let pcState = loadPCState();
 let npcState = {};
+
+/* 🔥 CRITICAL FIX: seed missing PCs */
+function seedPCState() {
+  for (const id of Object.keys(pcDefs)) {
+    if (!pcState[id]) {
+      pcState[id] = {
+        stress: 0,
+        health: 5,
+        conditions: {
+          starving: false,
+          dehydrated: false,
+          exhausted: false,
+          freezing: false
+        },
+        criticalInjuries: []
+      };
+    }
+  }
+}
+
+seedPCState();
 
 let gameState = {
   turnOrder: Object.keys(pcDefs),
@@ -44,26 +65,23 @@ let gameState = {
   history: []
 };
 
-/* ---------------- ACTORS (DERIVED VIEW ONLY) ---------------- */
+/* ---------------- ACTORS (READ ONLY VIEW) ---------------- */
 
 function buildPCActors() {
   const actors = {};
 
   for (const [id, def] of Object.entries(pcDefs)) {
+    const state = pcState[id];
+
     actors[id] = {
       id,
       type: "pc",
       name: def.name,
       callsign: def.callsign,
-      stress: pcState[id]?.stress ?? 0,
-      health: pcState[id]?.health ?? 5,
-      conditions: pcState[id]?.conditions ?? {
-        starving: false,
-        dehydrated: false,
-        exhausted: false,
-        freezing: false
-      },
-      criticalInjuries: pcState[id]?.criticalInjuries ?? []
+      stress: state.stress,
+      health: state.health,
+      conditions: state.conditions,
+      criticalInjuries: state.criticalInjuries
     };
   }
 
@@ -109,24 +127,6 @@ function pushHistory(entry) {
   broadcastState();
 }
 
-/* ---------------- PERSISTENCE (FIXED) ---------------- */
-
-function persistPCState() {
-  const out = {};
-
-  for (const [id, a] of Object.entries(pcState)) {
-    out[id] = {
-      stress: a.stress ?? 0,
-      health: a.health ?? 5,
-      conditions: a.conditions ?? {},
-      criticalInjuries: a.criticalInjuries ?? []
-    };
-  }
-
-  pcState = out;
-  savePCState(out);
-}
-
 /* ---------------- UTIL ---------------- */
 
 function rollDice(n) {
@@ -154,13 +154,12 @@ function performPanic(name) {
   if (!actor) return;
 
   const d6 = Math.floor(Math.random() * 6) + 1;
-  const stress = actor.stress || 0;
-  const total = d6 + stress;
+  const total = d6 + actor.stress;
 
   pushHistory({
     type: "panic",
-    name: actor.name ?? name,
-    label: `${actor.name} 🎲 ${d6}+${stress}=${total} → ${resolvePanic(total)}`,
+    name: actor.name,
+    label: `${actor.name} 🎲 ${d6}+${actor.stress}=${total} → ${resolvePanic(total)}`,
     time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   });
 }
@@ -175,7 +174,6 @@ function rollD66() {
 function performCritical() {
   const d66 = rollD66();
   const injury = criticalTable[d66];
-
   if (!injury) return;
 
   pushHistory({
@@ -227,14 +225,12 @@ function createActor(name) {
   };
 
   gameState.turnOrder.push(id);
-
   broadcastState();
 }
 
 function removeActor(id) {
   delete npcState[id];
   gameState.turnOrder = gameState.turnOrder.filter(n => n !== id);
-
   broadcastState();
 }
 
@@ -255,9 +251,31 @@ function nextTurn() {
   broadcastState();
 }
 
-/* ---------------- WS HANDLER ---------------- */
+/* ---------------- WS ---------------- */
 
-function handle(ws, msg) {
+wss.on("connection", ws => {
+  console.log("🟢 CLIENT CONNECTED");
+
+  ws.send(JSON.stringify({
+    type: "state",
+    state: {
+      ...gameState,
+      actors: buildActors()
+    }
+  }));
+
+  ws.on("message", raw => {
+    try {
+      handle(JSON.parse(raw.toString()));
+    } catch (e) {
+      console.log("BAD MESSAGE:", e);
+    }
+  });
+});
+
+/* ---------------- HANDLER ---------------- */
+
+function handle(msg) {
   switch (msg.type) {
 
     case "roll":
@@ -288,17 +306,13 @@ function handle(ws, msg) {
       nextTurn();
       break;
 
-    /* ---------------- GM MUTATIONS (NOW CORRECT) ---------------- */
+    /* ---------------- GM MUTATIONS (NOW RELIABLE) ---------------- */
 
     case "setStress": {
       const id = msg.name;
+      if (!pcState[id]) return;
 
-      if (pcState[id]) {
-        pcState[id].stress = Math.max(0, msg.stress);
-      } else if (npcState[id]) {
-        npcState[id].stress = Math.max(0, msg.stress);
-      } else return;
-
+      pcState[id].stress = Math.max(0, msg.stress);
       savePCState(pcState);
       broadcastState();
       break;
@@ -306,13 +320,9 @@ function handle(ws, msg) {
 
     case "setHealth": {
       const id = msg.name;
+      if (!pcState[id]) return;
 
-      if (pcState[id]) {
-        pcState[id].health = Math.max(0, msg.health);
-      } else if (npcState[id]) {
-        npcState[id].health = Math.max(0, msg.health);
-      } else return;
-
+      pcState[id].health = Math.max(0, msg.health);
       savePCState(pcState);
       broadcastState();
       break;
@@ -320,12 +330,7 @@ function handle(ws, msg) {
 
     case "setCondition": {
       const id = msg.name;
-
       if (!pcState[id]) return;
-
-      if (!pcState[id].conditions) {
-        pcState[id].conditions = {};
-      }
 
       pcState[id].conditions[msg.condition] = !!msg.value;
 
@@ -335,31 +340,3 @@ function handle(ws, msg) {
     }
   }
 }
-
-/* ---------------- CONNECTIONS ---------------- */
-
-wss.on("connection", ws => {
-  console.log("🟢 CLIENT CONNECTED");
-
-  ws.send(JSON.stringify({
-    type: "state",
-    state: {
-      ...gameState,
-      actors: buildActors()
-    }
-  }));
-
-  ws.on("message", raw => {
-    console.log("📩 RAW MESSAGE:", raw.toString());
-
-    try {
-      handle(ws, JSON.parse(raw.toString()));
-    } catch (e) {
-      console.log("BAD MESSAGE:", e);
-    }
-  });
-
-  ws.on("close", () => {
-    console.log("🔌 CLIENT DISCONNECTED");
-  });
-});
