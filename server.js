@@ -227,13 +227,18 @@ function performRoll({ name, basic = 0, noStress = false }) {
       ? rollDice(actor.stress)
       : [];
 
+  const allDice = [...basicDice, ...stressDice];
+
+  const successes = count(allDice, 6);
+  const banes = count(stressDice, 1);
+
   const label =
     `${actor?.name ?? name} ` +
     `🎲 ${basicDice.join(",") || "—"} ` +
     `⚡ ${stressDice.join(",") || "—"} ` +
     `→ ${successes}✔` +
     (banes > 0 ? ` ⚠` : "");
-  
+
   pushHistory({
     type: "roll",
     label,
