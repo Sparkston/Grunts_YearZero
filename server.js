@@ -33,35 +33,18 @@ function savePCState(state) {
   fs.writeFileSync(pcStatePath, JSON.stringify(state, null, 2));
 }
 
-/* ---------------- STATE ---------------- */
+/* ---------------- STATE (SOURCE OF TRUTH) ---------------- */
 
 let pcState = loadPCState();
 let npcState = {};
 
-/**
- * gameState.actors is the ONLY MUTABLE STATE
- */
 let gameState = {
-  actors: {},
   turnOrder: Object.keys(pcDefs),
   currentTurnIndex: 0,
   history: []
 };
 
-/* ---------------- UTIL ---------------- */
-
-function rollDice(n) {
-  return Array.from(
-    { length: Math.max(0, Number(n) || 0) },
-    () => Math.floor(Math.random() * 6) + 1
-  );
-}
-
-function count(arr, v) {
-  return arr.filter(x => x === v).length;
-}
-
-/* ---------------- ACTOR BUILD (VIEW ONLY) ---------------- */
+/* ---------------- ACTORS (DERIVED VIEW ONLY) ---------------- */
 
 function buildPCActors() {
   const actors = {};
@@ -72,17 +55,14 @@ function buildPCActors() {
       type: "pc",
       name: def.name,
       callsign: def.callsign,
-
       stress: pcState[id]?.stress ?? 0,
       health: pcState[id]?.health ?? 5,
-
       conditions: pcState[id]?.conditions ?? {
         starving: false,
         dehydrated: false,
         exhausted: false,
         freezing: false
       },
-
       criticalInjuries: pcState[id]?.criticalInjuries ?? []
     };
   }
@@ -93,22 +73,19 @@ function buildPCActors() {
 function buildActors() {
   return {
     ...buildPCActors(),
-    ...npcState,
-    ...gameState.actors
+    ...npcState
   };
 }
 
 /* ---------------- BROADCAST ---------------- */
 
 function broadcastState() {
-  const snapshot = {
-    ...gameState,
-    actors: buildActors()
-  };
-
   const msg = JSON.stringify({
     type: "state",
-    state: snapshot
+    state: {
+      ...gameState,
+      actors: buildActors()
+    }
   });
 
   for (const c of wss.clients) {
@@ -132,24 +109,35 @@ function pushHistory(entry) {
   broadcastState();
 }
 
-/* ---------------- PERSISTENCE ---------------- */
+/* ---------------- PERSISTENCE (FIXED) ---------------- */
 
 function persistPCState() {
   const out = {};
 
-  const pcs = buildPCActors();
-
-  for (const [id, a] of Object.entries(pcs)) {
+  for (const [id, a] of Object.entries(pcState)) {
     out[id] = {
-      stress: a.stress,
-      health: a.health,
-      conditions: a.conditions,
-      criticalInjuries: a.criticalInjuries
+      stress: a.stress ?? 0,
+      health: a.health ?? 5,
+      conditions: a.conditions ?? {},
+      criticalInjuries: a.criticalInjuries ?? []
     };
   }
 
   pcState = out;
   savePCState(out);
+}
+
+/* ---------------- UTIL ---------------- */
+
+function rollDice(n) {
+  return Array.from(
+    { length: Math.max(0, Number(n) || 0) },
+    () => Math.floor(Math.random() * 6) + 1
+  );
+}
+
+function count(arr, v) {
+  return arr.filter(x => x === v).length;
 }
 
 /* ---------------- PANIC ---------------- */
@@ -171,6 +159,7 @@ function performPanic(name) {
 
   pushHistory({
     type: "panic",
+    name: actor.name ?? name,
     label: `${actor.name} 🎲 ${d6}+${stress}=${total} → ${resolvePanic(total)}`,
     time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   });
@@ -207,9 +196,9 @@ function performRoll({ name, basic = 0, noStress = false }) {
       ? rollDice(actor.stress)
       : [];
 
-  const allDice = [...basicDice, ...stressDice];
+  const all = [...basicDice, ...stressDice];
 
-  const successes = count(allDice, 6);
+  const successes = count(all, 6);
   const banes = count(stressDice, 1);
 
   const label =
@@ -238,12 +227,14 @@ function createActor(name) {
   };
 
   gameState.turnOrder.push(id);
+
   broadcastState();
 }
 
 function removeActor(id) {
   delete npcState[id];
   gameState.turnOrder = gameState.turnOrder.filter(n => n !== id);
+
   broadcastState();
 }
 
@@ -264,7 +255,7 @@ function nextTurn() {
   broadcastState();
 }
 
-/* ---------------- MESSAGE HANDLER ---------------- */
+/* ---------------- WS HANDLER ---------------- */
 
 function handle(ws, msg) {
   switch (msg.type) {
@@ -297,41 +288,48 @@ function handle(ws, msg) {
       nextTurn();
       break;
 
-    /* ---------------- GM MUTATIONS (FIXED) ---------------- */
+    /* ---------------- GM MUTATIONS (NOW CORRECT) ---------------- */
 
     case "setStress": {
-      const a = gameState.actors[msg.name];
-      if (!a) return;
+      const id = msg.name;
 
-      a.stress = Math.max(0, msg.stress);
+      if (pcState[id]) {
+        pcState[id].stress = Math.max(0, msg.stress);
+      } else if (npcState[id]) {
+        npcState[id].stress = Math.max(0, msg.stress);
+      } else return;
 
-      if (a.type === "pc") persistPCState();
-
+      savePCState(pcState);
       broadcastState();
       break;
     }
 
     case "setHealth": {
-      const a = gameState.actors[msg.name];
-      if (!a) return;
+      const id = msg.name;
 
-      a.health = Math.max(0, msg.health);
+      if (pcState[id]) {
+        pcState[id].health = Math.max(0, msg.health);
+      } else if (npcState[id]) {
+        npcState[id].health = Math.max(0, msg.health);
+      } else return;
 
-      if (a.type === "pc") persistPCState();
-
+      savePCState(pcState);
       broadcastState();
       break;
     }
 
     case "setCondition": {
-      const a = gameState.actors[msg.name];
-      if (!a || a.type !== "pc") return;
+      const id = msg.name;
 
-      if (!a.conditions) a.conditions = {};
+      if (!pcState[id]) return;
 
-      a.conditions[msg.condition] = !!msg.value;
+      if (!pcState[id].conditions) {
+        pcState[id].conditions = {};
+      }
 
-      persistPCState();
+      pcState[id].conditions[msg.condition] = !!msg.value;
+
+      savePCState(pcState);
       broadcastState();
       break;
     }
