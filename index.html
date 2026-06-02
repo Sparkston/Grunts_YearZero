@@ -93,7 +93,8 @@ table {
 
 const urlParams = new URLSearchParams(window.location.search);
 const isGM = urlParams.get("gm") === "1";
-
+const pcSlot = Number(urlParams.get("pc")) || null;
+  
 let ws;
 let state = null;
 
@@ -145,7 +146,21 @@ function roll() {
     return;
   }
 
-  send({ type: "roll", name: sel, basic });
+    let actorName = sel;
+    
+    if (!isGM && pcSlot && state?.actors) {
+    
+      const pcIds = Object.keys(state.actors)
+        .filter(id => state.actors[id].type === "pc");
+    
+      actorName = pcIds[pcSlot - 1] || sel;
+    }
+    
+    send({
+      type: "roll",
+      name: actorName,
+      basic
+    });
 }
 
 function panic(name) {
@@ -226,6 +241,16 @@ function renderRole() {
 
 function renderSelect() {
   const sel = document.getElementById("actorSelect");
+
+  // ❌ Non-GM: hide completely and stop
+  if (!isGM) {
+    sel.style.display = "none";
+    return;
+  }
+
+  // GM: ensure visible
+  sel.style.display = "inline-block";
+
   sel.innerHTML = "";
 
   if (!state?.actors) return;
