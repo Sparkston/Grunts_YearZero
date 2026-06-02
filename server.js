@@ -1,22 +1,22 @@
 const http = require("http");
 const WebSocket = require("ws");
+const fs = require("fs");
+
+const panicTable = require("./panicTable");
+const criticalTable = require("./criticalTable");
+const pcDefs = require("./playerCharacters");
+
+const PORT = process.env.PORT || 8080;
+
+/* ---------------- SERVER ---------------- */
 
 const server = http.createServer();
 const wss = new WebSocket.Server({ server });
-
-const PORT = process.env.PORT || 8080;
 
 server.listen(PORT, () => {
   console.log("🚀 Server listening on", PORT);
 });
 
-wss.on("connection", ws => {
-  console.log("🟢 CLIENT CONNECTED");
-
-  ws.on("message", raw => {
-    console.log("📩 RAW MESSAGE:", raw.toString());
-  });
-});
 /* ---------------- PERSISTENCE ---------------- */
 
 const pcStatePath = "./pcState.json";
@@ -33,28 +33,32 @@ function savePCState(state) {
   fs.writeFileSync(pcStatePath, JSON.stringify(state, null, 2));
 }
 
-function setCondition(actorId, condition, value) {
-  const actor = gameState.actors[actorId];
-
-  if (!actor || actor.type !== "pc") return;
-
-  if (!actor.conditions) {
-    actor.conditions = {};
-  }
-
-  actor.conditions[condition] = !!value;
-
-  persistPCState();
-  broadcastState();
-}
+/* ---------------- STATE ---------------- */
 
 let pcState = loadPCState();
+let npcState = {};
 
-/* ---------------- NPC STATE (ephemeral) ---------------- */
+let gameState = {
+  actors: {},
+  turnOrder: Object.keys(pcDefs),
+  currentTurnIndex: 0,
+  history: []
+};
 
-let npcState = {}; // runtime only
+/* ---------------- UTIL ---------------- */
 
-/* ---------------- PC BUILD ---------------- */
+function rollDice(n) {
+  return Array.from(
+    { length: Math.max(0, Number(n) || 0) },
+    () => Math.floor(Math.random() * 6) + 1
+  );
+}
+
+function count(arr, v) {
+  return arr.filter(x => x === v).length;
+}
+
+/* ---------------- ACTORS ---------------- */
 
 function buildPCActors() {
   const actors = {};
@@ -83,47 +87,14 @@ function buildPCActors() {
   return actors;
 }
 
-/* ---------------- ACTORS SNAPSHOT (PC + NPC) ---------------- */
-
 function buildActors() {
-  const pcs = buildPCActors();
-  return { ...pcs, ...npcState };
+  return {
+    ...buildPCActors(),
+    ...npcState
+  };
 }
 
-/* ---------------- GAME STATE ---------------- */
-
-let gameState = {
-  actors: buildActors(),
-  turnOrder: Object.keys(pcDefs),
-  currentTurnIndex: 0,
-  history: []
-};
-
-/* ---------------- CLIENTS ---------------- */
-
-const clients = new Map();
-function getRole(ws) {
-  return clients.get(ws)?.role || "player";
-}
-
-/* ---------------- UTIL ---------------- */
-
-function rollDice(n) {
-  return Array.from(
-    { length: Math.max(0, Number(n) || 0) },
-    () => Math.floor(Math.random() * 6) + 1
-  );
-}
-
-function count(arr, v) {
-  return arr.filter(x => x === v).length;
-}
-
-/* ---------------- SNAPSHOT ---------------- */
-
-/*function rebuildState() {*/
-/*  gameState.actors = buildActors();*/
-/*}*/
+/* ---------------- BROADCAST ---------------- */
 
 function broadcastState() {
   const snapshot = {
@@ -146,27 +117,25 @@ function broadcastState() {
 /* ---------------- HISTORY ---------------- */
 
 function pushHistory(entry) {
-  if (!entry?.name) return;
-  
-  console.log("HISTORY ADD:", entry);
-  
+  if (!entry) return;
+
   gameState.history.push(entry);
 
   if (gameState.history.length > 200) {
     gameState.history = gameState.history.slice(-200);
   }
 
-  console.log("HISTORY LENGTH:", gameState.history.length);
-  
   broadcastState();
 }
 
-/* ---------------- PERSIST PC STATE ---------------- */
+/* ---------------- PERSIST ---------------- */
 
 function persistPCState() {
   const out = {};
 
-  for (const [id, a] of Object.entries(gameState.actors)) {
+  const actors = buildActors();
+
+  for (const [id, a] of Object.entries(actors)) {
     if (a.type === "pc") {
       out[id] = {
         stress: a.stress,
@@ -191,7 +160,7 @@ function resolvePanic(total) {
 }
 
 function performPanic(name) {
-  const actor = gameState.actors[name];
+  const actor = buildActors()[name];
   if (!actor) return;
 
   const d6 = Math.floor(Math.random() * 6) + 1;
@@ -200,7 +169,8 @@ function performPanic(name) {
 
   pushHistory({
     type: "panic",
-    label: `${actor.name} ⚠ ${d6}+${stress}=${total} → ${resolvePanic(total)}`,
+    name: actor.name ?? name,
+    label: `${actor.name} 🎲 ${d6}+${stress}=${total} → ${resolvePanic(total)}`,
     time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   });
 }
@@ -228,10 +198,9 @@ function performCritical() {
 /* ---------------- ROLL ---------------- */
 
 function performRoll({ name, basic = 0, noStress = false }) {
-  const actor = gameState.actors[name];
+  const actor = buildActors()[name];
 
   const basicDice = rollDice(basic);
-
   const stressDice =
     actor?.type === "pc" && !noStress
       ? rollDice(actor.stress)
@@ -243,14 +212,13 @@ function performRoll({ name, basic = 0, noStress = false }) {
   const banes = count(stressDice, 1);
 
   const label =
-    `${actor?.name ?? name} ` +
-    `🎲 ${basicDice.join(",") || "—"} ` +
-    `⚡ ${stressDice.join(",") || "—"} ` +
-    `→ ${successes}✔` +
-    (banes > 0 ? ` ⚠` : "");
+    `${actor?.name ?? name} 🎲 ${basicDice.join(",") || "—"} ` +
+    `⚡ ${stressDice.join(",") || "—"} → ${successes}✔` +
+    (banes ? ` ⚠` : "");
 
   pushHistory({
     type: "roll",
+    name: actor?.name ?? name,
     label,
     time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   });
@@ -269,17 +237,13 @@ function createActor(name) {
     health: 5
   };
 
-  // 🔥 IMPORTANT: add to initiative
   gameState.turnOrder.push(id);
 
   broadcastState();
 }
 
 function removeActor(id) {
-  if (!npcState[id]) return;
-
   delete npcState[id];
-
   gameState.turnOrder = gameState.turnOrder.filter(n => n !== id);
 
   broadcastState();
@@ -294,7 +258,7 @@ function shuffleInitiative() {
 }
 
 function nextTurn() {
-  if (gameState.turnOrder.length === 0) return;
+  if (!gameState.turnOrder.length) return;
 
   gameState.currentTurnIndex =
     (gameState.currentTurnIndex + 1) % gameState.turnOrder.length;
@@ -302,73 +266,13 @@ function nextTurn() {
   broadcastState();
 }
 
-/* ---------------- MESSAGE HANDLER ---------------- */
+/* ---------------- WS HANDLER ---------------- */
 
 function handle(ws, msg) {
-
-    
-  console.log("📩 SERVER RECEIVED:", msg);
-  
   switch (msg.type) {
 
-    case "setRole":
-      clients.set(ws, { role: msg.role || "player" });
-      break;
-
-    case "setStress": {
-      if (getRole(ws) !== "gm") return;
-
-      const a = gameState.actors[msg.name];
-      if (!a) return;
-
-      a.stress = Math.max(0, msg.stress);
-      persistPCState();
-      broadcastState();
-      break;
-    }
-
-    case "setHealth": {
-      if (getRole(ws) !== "gm") return;
-
-      const a = gameState.actors[msg.name];
-      if (!a) return;
-
-      a.health = Math.max(0, msg.health);
-      persistPCState();
-      broadcastState();
-      break;
-    }
-
-    case "setCondition": {
-      if (getRole(ws) !== "gm") return;
-    
-      const actor = gameState.actors[msg.name];
-      if (!actor || actor.type !== "pc") return;
-    
-      if (!actor.conditions) {
-        actor.conditions = {};
-      }
-    
-      actor.conditions[msg.condition] = !!msg.value;
-    
-      persistPCState();
-      broadcastState();
-      break;
-    }
-      
     case "roll":
-      performRoll({
-        name: msg.name,
-        basic: Number(msg.basic) || 0
-      });
-      break;
-
-    case "adHocRoll":
-      performRoll({
-        name: "Ad Hoc",
-        basic: Number(msg.basic) || 0,
-        noStress: true
-      });
+      performRoll({ name: msg.name, basic: Number(msg.basic) || 0 });
       break;
 
     case "panic":
@@ -400,18 +304,19 @@ function handle(ws, msg) {
 /* ---------------- CONNECTIONS ---------------- */
 
 wss.on("connection", ws => {
-
   console.log("🟢 CLIENT CONNECTED");
-  
-  clients.set(ws, { role: "player" });
 
   ws.send(JSON.stringify({
     type: "state",
-    state: gameState
+    state: {
+      ...gameState,
+      actors: buildActors()
+    }
   }));
 
   ws.on("message", raw => {
     console.log("📩 RAW MESSAGE:", raw.toString());
+
     try {
       handle(ws, JSON.parse(raw.toString()));
     } catch (e) {
@@ -420,6 +325,6 @@ wss.on("connection", ws => {
   });
 
   ws.on("close", () => {
-    clients.delete(ws);
+    console.log("🔌 CLIENT DISCONNECTED");
   });
 });
