@@ -367,37 +367,17 @@ function renderHistory() {
   const div = document.getElementById("history");
   if (!state?.history) return;
 
- div.innerHTML = state.history
-  .slice()
-  .reverse()
-  .map(r => {
-
-    if (r.type === "panic") {
-      return `
-        <div class="player">
-          <b>${r.name}</b> (${r.time || ""})<br>
-
-          Panic Roll: ${r.roll ?? "?"}<br>
-          Stress: ${r.stress ?? 0}<br>
-          Total: ${r.total ?? "?"}<br>
-
-          <b>${r.resultText ?? ""}</b>
-        </div>
-      `;
-    }
-
-    return `
+  div.innerHTML = state.history
+    .slice()
+    .reverse()
+    .map(r => `
       <div class="player">
-        <b>${state?.actors?.[r.actorId]?.name ?? r.name}</b> (${r.time || ""})<br>
-
-        ${r.basic ? `Basic: ${r.basic.join(" ")}<br>` : ""}
-        ${r.stress ? `Stress: ${r.stress.join(" ")}<br>` : ""}
-        ${typeof r.successes === "number" ? `Successes: ${r.successes}<br>` : ""}
-        ${typeof r.banes === "number" ? `Banes: ${r.banes}<br>` : ""}
-        ${r.resultText ? `<b>${r.resultText}</b>` : ""}
+        <span style="opacity:0.6;margin-right:8px;">
+          ${r.time ?? ""}
+        </span>
+        ${r.label}
       </div>
-    `;
-  }).join("");
+    `).join("");
 }
 
 /* ---------------- MASTER ---------------- */
