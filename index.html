@@ -365,21 +365,28 @@ function renderActors() {
 
 function renderHistory() {
   const div = document.getElementById("history");
-  if (!state?.history) return;
 
-  div.innerHTML = state.history
+  const history = state?.history;
+  if (!Array.isArray(history)) return;
+
+  div.innerHTML = history
     .slice()
     .reverse()
-    .map(r => `
-      <div class="player">
-        <span style="opacity:0.6;margin-right:8px;">
-          ${r.time ?? ""}
-        </span>
-        ${r.label}
-      </div>
-    `).join("");
-}
+    .map(r => {
+      const time = r?.time ?? "";
+      const label = r?.label ?? r?.name ?? "[invalid entry]";
 
+      return `
+        <div class="player">
+          <span style="opacity:0.6;margin-right:8px;">
+            ${time}
+          </span>
+          ${label}
+        </div>
+      `;
+    })
+    .join("");
+}
 /* ---------------- MASTER ---------------- */
 
 function renderAll() {
