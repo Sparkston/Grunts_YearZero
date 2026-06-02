@@ -306,6 +306,14 @@ function handle(msg) {
       nextTurn();
       break;
 
+    case "adHocRoll":
+        performRoll({
+          name: "Ad Hoc",
+          basic: Number(msg.basic) || 0,
+          noStress: true
+        });
+        break;
+      
     /* ---------------- GM MUTATIONS (NOW RELIABLE) ---------------- */
 
     case "setStress": {
