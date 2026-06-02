@@ -298,6 +298,10 @@ function nextTurn() {
 /* ---------------- MESSAGE HANDLER ---------------- */
 
 function handle(ws, msg) {
+
+    
+  console.log("📩 SERVER RECEIVED:", msg);
+  
   switch (msg.type) {
 
     case "setRole":
