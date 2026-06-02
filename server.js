@@ -186,15 +186,8 @@ function performPanic(name) {
 
   pushHistory({
     type: "panic",
-    actorId: name,
-    name: actor.name ?? name,
-
-    roll: d6,        // ✔ explicit D6
-    stress,          // ✔ actor stress value
-    total,
-
-    resultText: resolvePanic(total),
-    time: new Date().toLocaleTimeString()
+    label: `${actor.name} ⚠ ${d6}+${stress}=${total} → ${resolvePanic(total)}`,
+    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   });
 }
 
@@ -213,13 +206,8 @@ function performCritical() {
 
   pushHistory({
     type: "critical",
-    name: "Critical Injury",
-    d66,
-
-    // normalize display field (IMPORTANT)
-    resultText: injury.resultText || injury.text || injury.effect || JSON.stringify(injury),
-
-    time: new Date().toLocaleTimeString()
+    label: `💀 CRIT (${d66}) → ${injury.injury}`,
+    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   });
 }
 
@@ -235,14 +223,17 @@ function performRoll({ name, basic = 0, noStress = false }) {
       ? rollDice(actor.stress)
       : [];
 
+  const label =
+    `${actor?.name ?? name} ` +
+    `🎲 ${basicDice.join(",") || "—"} ` +
+    `⚡ ${stressDice.join(",") || "—"} ` +
+    `→ ${successes}✔` +
+    (banes > 0 ? ` ⚠` : "");
+  
   pushHistory({
-    name: actor?.name ?? name,
-    actorId: name,
-    basic: basicDice,
-    stress: stressDice,
-    successes: count([...basicDice, ...stressDice], 6),
-    banes: count(stressDice, 1),
-    time: new Date().toLocaleTimeString()
+    type: "roll",
+    label,
+    time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
   });
 }
 
