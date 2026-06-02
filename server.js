@@ -298,6 +298,51 @@ function handle(ws, msg) {
     case "nextTurn":
       nextTurn();
       break;
+
+      case "setStress": {
+  if (getRole(ws) !== "gm") return;
+
+  const actors = buildActors();
+  const a = actors[msg.name];
+  if (!a) return;
+
+  const real = gameState.actors[msg.name];
+  if (!real) return;
+
+  real.stress = Math.max(0, msg.stress);
+  persistPCState();
+  broadcastState();
+  break;
+}
+
+  case "setHealth": {
+    if (getRole(ws) !== "gm") return;
+  
+    const real = gameState.actors[msg.name];
+    if (!real) return;
+  
+    real.health = Math.max(0, msg.health);
+    persistPCState();
+    broadcastState();
+    break;
+  }
+  
+  case "setCondition": {
+    if (getRole(ws) !== "gm") return;
+  
+    const real = gameState.actors[msg.name];
+    if (!real || real.type !== "pc") return;
+  
+    if (!real.conditions) real.conditions = {};
+  
+    real.conditions[msg.condition] = !!msg.value;
+  
+    persistPCState();
+    broadcastState();
+    break;
+  }
+
+      
   }
 }
 
