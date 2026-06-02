@@ -393,6 +393,9 @@ function handle(ws, msg) {
 /* ---------------- CONNECTIONS ---------------- */
 
 wss.on("connection", ws => {
+
+  console.log("🟢 CLIENT CONNECTED");
+  
   clients.set(ws, { role: "player" });
 
   ws.send(JSON.stringify({
@@ -401,6 +404,7 @@ wss.on("connection", ws => {
   }));
 
   ws.on("message", raw => {
+    console.log("📩 RAW MESSAGE:", raw.toString());
     try {
       handle(ws, JSON.parse(raw.toString()));
     } catch (e) {
