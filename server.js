@@ -208,12 +208,17 @@ function rollD66() {
 function performCritical() {
   const d66 = rollD66();
   const injury = criticalTable[d66];
+
   if (!injury) return;
 
   pushHistory({
+    type: "critical",
     name: "Critical Injury",
     d66,
-    ...injury,
+
+    // normalize display field (IMPORTANT)
+    resultText: injury.resultText || injury.text || injury.effect || JSON.stringify(injury),
+
     time: new Date().toLocaleTimeString()
   });
 }
